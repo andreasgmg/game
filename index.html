@@ -2,24 +2,25 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>CHRONO JUMP: HYPER</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CHRONO JUMP: HYPER PERFORMANCE</title>
     <style>
         body {
             margin: 0; padding: 0; overflow: hidden;
-            background-color: #050505;
+            background-color: #000;
             font-family: 'Segoe UI', sans-serif;
             user-select: none;
-            touch-action: none; /* Prevents scrolling on mobile */
+            touch-action: none;
+            -webkit-user-select: none;
         }
         #ui {
-            position: absolute; top: 20px; width: 100%;
+            position: absolute; top: safe-area-inset-top; width: 100%;
             text-align: center; pointer-events: none;
-            color: #fff; z-index: 10;
+            color: #fff; z-index: 10; margin-top: 20px;
         }
         #score { 
             font-size: 80px; font-weight: 900; margin: 0; 
-            letter-spacing: 2px; text-shadow: 0 5px 15px rgba(0,0,0,0.5);
+            letter-spacing: 2px; text-shadow: 0 5px 0 #000;
         }
         #combo-container {
             height: 30px; margin-top: -10px; margin-bottom: 10px;
@@ -27,7 +28,7 @@
         #combo {
             font-size: 24px; font-weight: 800; color: #FFD700;
             opacity: 0; transition: transform 0.1s;
-            text-shadow: 0 0 10px #FFD700;
+            text-shadow: 0 2px 0 #000;
         }
         #high-score { font-size: 18px; color: rgba(255,255,255,0.6); }
         #hint { font-size: 14px; opacity: 0.8; margin-top: 5px; text-transform: uppercase; letter-spacing: 2px; }
@@ -38,19 +39,17 @@
             background: rgba(0, 0, 0, 0.9); 
             backdrop-filter: blur(10px);
             padding: 50px; border: 2px solid rgba(255,255,255,0.2);
-            box-shadow: 0 0 50px rgba(0,0,0,0.8);
             border-radius: 20px;
             text-align: center; pointer-events: auto;
             z-index: 100;
-            min-width: 200px;
+            min-width: 250px;
         }
         button {
             padding: 15px 50px; font-size: 24px; font-weight: bold;
             background: #fff; color: #000; border: none; cursor: pointer;
             margin-top: 30px; text-transform: uppercase;
-            border-radius: 50px; transition: transform 0.1s, box-shadow 0.1s;
+            border-radius: 50px; transition: transform 0.1s;
         }
-        button:hover { transform: scale(1.05); box-shadow: 0 0 30px #fff; }
         button:active { transform: scale(0.95); }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
@@ -77,6 +76,9 @@
 
         const engine = Engine.create();
         const world = engine.world;
+        
+        // Disable Matter.js internal pixel ratio correction for performance
+        // We will handle rendering manually in the afterRender loop
         const render = Render.create({
             element: document.body,
             engine: engine,
@@ -85,7 +87,8 @@
                 height: window.innerHeight,
                 background: 'transparent',
                 wireframes: false,
-                hasBounds: true
+                hasBounds: true,
+                pixelRatio: 1 // Forces 1:1 pixel mapping (Huge FPS boost on Retina)
             }
         });
 
@@ -101,7 +104,6 @@
             if (audioCtx.state === 'suspended') audioCtx.resume();
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
-            
             let time = audioCtx.currentTime;
 
             if (type === 'jump') {
@@ -149,73 +151,32 @@
 
         // --- VARIABLES ---
         let player, lava;
-        let platforms = [];
-        let particles = [];
-        let orbs = [];
-        let floatingTexts = [];
-        let stars = [];
-        let embers = [];
-        let trail = []; 
-        
-        let isDragging = false;
-        let dragStart = { x: 0, y: 0 };
-        let dragCurrent = { x: 0, y: 0 };
-        let isGrounded = false;
-        
-        let score = 0;
-        let highScore = localStorage.getItem('chrono_jump_best') || 0;
-        let lavaSpeed = 0.5; 
-        let isGameOver = false;
-        let cameraY = 0;
-        let shakeIntensity = 0;
-        let globalHue = 180;
-        
-        let combo = 0; 
+        let platforms = [], particles = [], orbs = [], floatingTexts = [], stars = [], embers = [], trail = [];
+        let isDragging = false, dragStart = { x: 0, y: 0 }, dragCurrent = { x: 0, y: 0 }, isGrounded = false;
+        let score = 0, highScore = localStorage.getItem('chrono_jump_best') || 0;
+        let lavaSpeed = 0.5, isGameOver = false;
+        let cameraY = 0, shakeIntensity = 0, globalHue = 180, combo = 0;
+        let lastPlatX = window.innerWidth / 2, lastPlatY = window.innerHeight - 50;
 
-        let lastPlatX = window.innerWidth / 2;
-        let lastPlatY = window.innerHeight - 50;
-        
         // --- SETUP ---
         function init() {
             document.getElementById('high-score').innerText = "BEST: " + highScore + "m";
 
-            // Stars
-            for(let i=0; i<80; i++) {
-                stars.push({
-                    x: Math.random() * window.innerWidth,
-                    y: Math.random() * window.innerHeight,
-                    size: Math.random() * 2,
-                    speed: Math.random() * 0.5 + 0.1,
-                    alpha: Math.random()
-                });
-            }
-            // Embers
-            for(let i=0; i<30; i++) {
-                embers.push({
-                    x: Math.random() * window.innerWidth,
-                    y: window.innerHeight + Math.random() * 500,
-                    size: Math.random() * 4 + 1,
-                    speed: Math.random() * 2 + 1
-                });
-            }
+            for(let i=0; i<60; i++) stars.push({x:Math.random()*window.innerWidth, y:Math.random()*window.innerHeight, size:Math.random()*2, speed:Math.random()*0.5+0.1, alpha:Math.random()});
+            for(let i=0; i<20; i++) embers.push({x:Math.random()*window.innerWidth, y:window.innerHeight+Math.random()*500, size:Math.random()*4+1, speed:Math.random()*2+1});
 
-            // Player
             player = Bodies.rectangle(window.innerWidth/2, window.innerHeight - 200, 30, 30, {
                 friction: 0.1, frictionAir: 0.01, restitution: 0.0, density: 0.002,
                 render: { fillStyle: '#fff' }
             });
             
-            // Start Platform
             let startPlat = Bodies.rectangle(window.innerWidth/2, window.innerHeight - 50, 400, 40, {
                 isStatic: true, render: { fillStyle: '#333' }, visited: true
             });
             platforms.push(startPlat);
 
-            // Lava
-            let lavaStart = window.innerHeight + 600; 
-            lava = Bodies.rectangle(window.innerWidth/2, lavaStart, window.innerWidth * 2, 1000, {
-                isStatic: true, isSensor: true, 
-                render: { fillStyle: '#FF3333', opacity: 0.8 }
+            lava = Bodies.rectangle(window.innerWidth/2, window.innerHeight + 600, window.innerWidth * 2, 1000, {
+                isStatic: true, isSensor: true, render: { fillStyle: '#FF3333', opacity: 0.8 }
             });
 
             Composite.add(world, [player, startPlat, lava]);
@@ -227,13 +188,8 @@
             while (lastPlatY > limit) {
                 let jumpY = 130 + Math.random() * 60; 
                 let nextY = lastPlatY - jumpY;
-
-                let minShift = 90; let maxShift = 250; 
-                let dir = 1;
-                if (lastPlatX < window.innerWidth * 0.3) dir = 1; 
-                else if (lastPlatX > window.innerWidth * 0.7) dir = -1; 
-                else dir = Math.random() > 0.5 ? 1 : -1; 
-
+                let minShift = 90, maxShift = 250; 
+                let dir = (lastPlatX < window.innerWidth * 0.3) ? 1 : (lastPlatX > window.innerWidth * 0.7) ? -1 : (Math.random() > 0.5 ? 1 : -1);
                 let shift = minShift + (Math.random() * (maxShift - minShift));
                 let nextX = lastPlatX + (shift * dir);
 
@@ -247,18 +203,10 @@
                 if (isBreakable) color = '#fff';
 
                 let w = 90 + Math.random() * 60; 
-
                 let plat = Bodies.rectangle(nextX, nextY, w, 20, {
-                    isStatic: true,
-                    render: { fillStyle: color },
-                    moving: isMoving,
-                    breakable: isBreakable,
-                    speed: 1 + Math.random(),
-                    limitLeft: Math.max(20, nextX - 100),
-                    limitRight: Math.min(window.innerWidth - 20, nextX + 100),
-                    dir: Math.random() > 0.5 ? 1 : -1,
-                    broken: false,
-                    visited: false 
+                    isStatic: true, render: { fillStyle: color }, moving: isMoving, breakable: isBreakable,
+                    speed: 1 + Math.random(), limitLeft: Math.max(20, nextX - 100), limitRight: Math.min(window.innerWidth - 20, nextX + 100),
+                    dir: Math.random() > 0.5 ? 1 : -1, broken: false, visited: false 
                 });
 
                 platforms.push(plat);
@@ -266,13 +214,11 @@
 
                 if (!isBreakable && Math.random() < 0.15) {
                     let orb = Bodies.circle(nextX, nextY - 40, 10, {
-                        isStatic: true, isSensor: true, label: 'orb',
-                        render: { fillStyle: '#FFD700' }
+                        isStatic: true, isSensor: true, label: 'orb', render: { fillStyle: '#FFD700' }
                     });
                     orbs.push(orb);
                     Composite.add(world, orb);
                 }
-
                 lastPlatX = nextX; lastPlatY = nextY;
             }
         }
@@ -289,34 +235,19 @@
                         if (!isGrounded) {
                             playSound('land');
                             createExplosion(player.position.x, player.position.y + 15, `hsl(${globalHue}, 100%, 50%)`, 5);
-                            
-                            // PERFECT CHECK
                             let diff = Math.abs(player.position.x - other.position.x);
                             if (diff < 15 && !other.visited) { 
-                                // PERFECT
-                                combo++;
-                                playSound('perfect');
-                                let pts = 5 * combo;
-                                score += pts; 
+                                combo++; playSound('perfect'); score += 5 * combo;
                                 createFloatingText("PERFECT x" + combo, player.position.x, player.position.y - 40, '#FFD700');
-                                
-                                // Flash Platform
-                                let originalColor = other.render.fillStyle;
-                                other.render.fillStyle = '#FFD700'; 
+                                let originalColor = other.render.fillStyle; other.render.fillStyle = '#FFD700'; 
                                 setTimeout(() => { if(!other.broken) other.render.fillStyle = originalColor; }, 200);
                                 other.visited = true; 
-                            } else if (!other.visited) {
-                                // NORMAL LANDING (Reset Combo)
-                                combo = 0;
-                                other.visited = true;
-                            }
+                            } else if (!other.visited) { combo = 0; other.visited = true; }
                             updateComboUI();
                         }
                         isGrounded = true;
-                        
                         if (other.breakable && !other.broken) {
-                            other.broken = true;
-                            other.render.fillStyle = '#FF9999';
+                            other.broken = true; other.render.fillStyle = '#FF9999';
                             setTimeout(() => breakPlatform(other), 800);
                         }
                     }
@@ -326,85 +257,53 @@
 
         function updateComboUI() {
             let el = document.getElementById('combo');
-            if (combo > 1) {
-                el.innerText = "COMBO x" + combo;
-                el.style.opacity = 1;
-                el.style.transform = "scale(1.5)";
-                setTimeout(() => el.style.transform = "scale(1)", 100);
-            } else {
-                el.style.opacity = 0;
-            }
+            if (combo > 1) { el.innerText = "COMBO x" + combo; el.style.opacity = 1; el.style.transform = "scale(1.5)"; setTimeout(() => el.style.transform = "scale(1)", 100); } 
+            else el.style.opacity = 0;
         }
 
         function collectOrb(orb) {
             if (!orbs.includes(orb)) return;
-            Composite.remove(world, orb);
-            orbs = orbs.filter(o => o !== orb);
-            playSound('orb');
-            createExplosion(orb.position.x, orb.position.y, '#FFD700', 10);
-            Body.translate(lava, { x: 0, y: 150 });
-            createFloatingText("-LAVA", orb.position.x, orb.position.y - 20, '#FFD700');
+            Composite.remove(world, orb); orbs = orbs.filter(o => o !== orb);
+            playSound('orb'); createExplosion(orb.position.x, orb.position.y, '#FFD700', 10);
+            Body.translate(lava, { x: 0, y: 150 }); createFloatingText("-LAVA", orb.position.x, orb.position.y - 20, '#FFD700');
         }
 
         function breakPlatform(plat) {
             if (!platforms.includes(plat)) return; 
-            createExplosion(plat.position.x, plat.position.y, '#FFF', 15);
-            playSound('break');
-            Composite.remove(world, plat);
-            setTimeout(() => respawnPlatform(plat), 2500); 
+            createExplosion(plat.position.x, plat.position.y, '#FFF', 15); playSound('break');
+            Composite.remove(world, plat); setTimeout(() => respawnPlatform(plat), 2500); 
         }
 
         function respawnPlatform(plat) {
             if (!platforms.includes(plat)) return; 
-            plat.broken = false;
-            plat.render.fillStyle = '#fff';
-            Composite.add(world, plat);
-            playSound('spawn');
+            plat.broken = false; plat.render.fillStyle = '#fff';
+            Composite.add(world, plat); playSound('spawn');
             createExplosion(plat.position.x, plat.position.y, '#00FF00', 8);
         }
 
-        function createFloatingText(text, x, y, color = '#fff') {
-            floatingTexts.push({ text: text, x: x, y: y, life: 1.0, color: color });
-        }
+        function createFloatingText(text, x, y, color = '#fff') { floatingTexts.push({ text: text, x: x, y: y, life: 1.0, color: color }); }
 
-        // --- INPUT (MOUSE & TOUCH) --
+        // --- INPUT ---
         function handleStart(x, y) {
             if (isGameOver) return;
-            if (isGrounded) {
-                isDragging = true;
-                dragStart = { x: x, y: y };
-                dragCurrent = { x: x, y: y };
-                engine.timing.timeScale = 0.1; 
-            }
+            if (isGrounded) { isDragging = true; dragStart = { x: x, y: y }; dragCurrent = { x: x, y: y }; engine.timing.timeScale = 0.1; }
         }
-
-        function handleMove(x, y) {
-            if (isDragging) dragCurrent = { x: x, y: y };
-        }
-
+        function handleMove(x, y) { if (isDragging) dragCurrent = { x: x, y: y }; }
         function handleEnd() {
             if (!isDragging) return;
-            isDragging = false;
-            engine.timing.timeScale = 1.0; 
-
-            let dx = dragStart.x - dragCurrent.x;
-            let dy = dragStart.y - dragCurrent.y;
+            isDragging = false; engine.timing.timeScale = 1.0; 
+            let dx = dragStart.x - dragCurrent.x, dy = dragStart.y - dragCurrent.y;
             let force = Vector.mult(Vector.normalise({ x: dx, y: dy }), Math.min(Vector.magnitude({ x: dx*0.0006, y: dy*0.0006 }), 0.09));
-
             if (Vector.magnitude(force) > 0.005) {
                 Body.applyForce(player, player.position, force);
                 createExplosion(player.position.x, player.position.y, `hsl(${globalHue}, 100%, 80%)`, 10);
-                playSound('jump', 1 + (combo*0.1));
-                isGrounded = false;
+                playSound('jump', 1 + (combo*0.1)); isGrounded = false;
             }
         }
 
-        // Mouse
         document.addEventListener('mousedown', e => handleStart(e.clientX, e.clientY));
         document.addEventListener('mousemove', e => handleMove(e.clientX, e.clientY));
         document.addEventListener('mouseup', handleEnd);
-
-        // Touch
         document.addEventListener('touchstart', e => { handleStart(e.touches[0].clientX, e.touches[0].clientY); }, {passive: false});
         document.addEventListener('touchmove', e => { e.preventDefault(); handleMove(e.touches[0].clientX, e.touches[0].clientY); }, {passive: false});
         document.addEventListener('touchend', handleEnd);
@@ -414,26 +313,20 @@
             if (isGameOver) return;
             globalHue = (180 + (score * 2)) % 360;
 
-            if (!isGrounded) {
-                trail.push({ x: player.position.x, y: player.position.y });
-                if (trail.length > 20) trail.shift();
-            } else {
-                if (trail.length > 0) trail.shift();
-            }
+            if (!isGrounded) { trail.push({ x: player.position.x, y: player.position.y }); if (trail.length > 20) trail.shift(); } 
+            else if (trail.length > 0) trail.shift();
 
             if (player.position.x < 15) { Body.setPosition(player, { x: 15, y: player.position.y }); Body.setVelocity(player, { x: 0, y: player.velocity.y }); }
             if (player.position.x > window.innerWidth - 15) { Body.setPosition(player, { x: window.innerWidth - 15, y: player.position.y }); Body.setVelocity(player, { x: 0, y: player.velocity.y }); }
 
-            lavaSpeed += 0.00005; 
-            Body.translate(lava, { x: 0, y: -lavaSpeed * engine.timing.timeScale });
+            lavaSpeed += 0.00005; Body.translate(lava, { x: 0, y: -lavaSpeed * engine.timing.timeScale });
             Body.setPosition(lava, { x: window.innerWidth/2, y: lava.position.y }); 
 
             let targetY = player.position.y - window.innerHeight * 0.7;
             cameraY += (targetY - cameraY) * 0.08;
             
             if (shakeIntensity > 0) {
-                let sx = (Math.random()-0.5)*shakeIntensity;
-                let sy = (Math.random()-0.5)*shakeIntensity;
+                let sx = (Math.random()-0.5)*shakeIntensity, sy = (Math.random()-0.5)*shakeIntensity;
                 render.bounds.min.x = sx; render.bounds.max.x = window.innerWidth + sx;
                 render.bounds.min.y = cameraY + sy; render.bounds.max.y = cameraY + window.innerHeight + sy;
                 shakeIntensity *= 0.9;
@@ -450,117 +343,97 @@
             document.getElementById('score').innerText = score + "m";
             document.getElementById('score').style.color = `hsl(${globalHue}, 100%, 70%)`;
 
-            platforms.forEach(p => {
-                if (p.moving) {
-                    Body.translate(p, { x: p.speed * p.dir * engine.timing.timeScale, y: 0 });
-                    if (p.position.x > p.limitRight) p.dir = -1;
-                    if (p.position.x < p.limitLeft) p.dir = 1;
-                }
-            });
+            platforms.forEach(p => { if (p.moving) { Body.translate(p, { x: p.speed * p.dir * engine.timing.timeScale, y: 0 }); if (p.position.x > p.limitRight) p.dir = -1; if (p.position.x < p.limitLeft) p.dir = 1; } });
 
-            for (let i = platforms.length - 1; i >= 0; i--) {
-                if (platforms[i].position.y > lava.position.y + 200) {
-                    Composite.remove(world, platforms[i]);
-                    platforms.splice(i, 1);
-                }
-            }
-            for (let i = orbs.length - 1; i >= 0; i--) {
-                if (orbs[i].position.y > lava.position.y + 200) {
-                    Composite.remove(world, orbs[i]);
-                    orbs.splice(i, 1);
-                }
-            }
+            for (let i = platforms.length - 1; i >= 0; i--) if (platforms[i].position.y > lava.position.y + 200) { Composite.remove(world, platforms[i]); platforms.splice(i, 1); }
+            for (let i = orbs.length - 1; i >= 0; i--) if (orbs[i].position.y > lava.position.y + 200) { Composite.remove(world, orbs[i]); orbs.splice(i, 1); }
             generatePath();
         });
 
-        // --- RENDER ---
+        // --- OPTIMIZED RENDER LOOP ---
         Events.on(render, 'afterRender', () => {
             const ctx = render.context;
             let camY = render.bounds.min.y;
 
+            // 1. BG
             let grad = ctx.createLinearGradient(0, 0, 0, window.innerHeight);
-            grad.addColorStop(0, `hsl(${globalHue}, 60%, 5%)`);
-            grad.addColorStop(1, '#000');
+            grad.addColorStop(0, `hsl(${globalHue}, 60%, 5%)`); grad.addColorStop(1, '#000');
             ctx.globalCompositeOperation = 'destination-over';
-            ctx.fillStyle = grad;
-            ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
-            ctx.globalCompositeOperation = 'source-over';
+            ctx.fillStyle = grad; ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+            ctx.globalCompositeOperation = 'source-over'; // Reset
 
+            // 2. Stars
             ctx.fillStyle = '#fff';
             stars.forEach(s => {
-                let sy = (s.y - camY * s.speed) % window.innerHeight;
-                if (sy < 0) sy += window.innerHeight;
-                ctx.globalAlpha = s.alpha;
-                ctx.beginPath(); ctx.arc(s.x, sy, s.size, 0, Math.PI*2); ctx.fill();
+                let sy = (s.y - camY * s.speed) % window.innerHeight; if (sy < 0) sy += window.innerHeight;
+                ctx.globalAlpha = s.alpha; ctx.beginPath(); ctx.arc(s.x, sy, s.size, 0, Math.PI*2); ctx.fill();
             });
             ctx.globalAlpha = 1.0;
 
+            // 3. Embers
             ctx.fillStyle = '#FF5500';
             embers.forEach(e => {
-                e.y -= e.speed;
-                if (e.y < lava.position.y - 1500) { e.y = lava.position.y; e.x = Math.random() * window.innerWidth; }
-                ctx.globalAlpha = Math.random() * 0.5 + 0.5;
-                ctx.beginPath(); ctx.arc(e.x, e.y - camY, e.size, 0, Math.PI*2); ctx.fill();
+                e.y -= e.speed; if (e.y < lava.position.y - 1500) { e.y = lava.position.y; e.x = Math.random() * window.innerWidth; }
+                ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.arc(e.x, e.y - camY, e.size, 0, Math.PI*2); ctx.fill();
             });
             ctx.globalAlpha = 1.0;
 
+            // 4. FAST GLOW (Using Additive Blending instead of ShadowBlur)
+            ctx.globalCompositeOperation = 'lighter'; // This makes things glow without CPU cost
+
+            // Trail
             if (trail.length > 1) {
-                ctx.beginPath();
-                ctx.moveTo(trail[0].x, trail[0].y - camY);
-                for(let i=1; i<trail.length; i++) {
-                    ctx.lineTo(trail[i].x, trail[i].y - camY);
-                }
-                ctx.strokeStyle = `hsla(${globalHue}, 100%, 50%, 0.5)`;
-                ctx.lineWidth = 10;
-                ctx.lineCap = 'round';
-                ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(trail[0].x, trail[0].y - camY);
+                for(let i=1; i<trail.length; i++) ctx.lineTo(trail[i].x, trail[i].y - camY);
+                ctx.strokeStyle = `hsla(${globalHue}, 100%, 50%, 0.5)`; ctx.lineWidth = 10; ctx.lineCap = 'round'; ctx.stroke();
             }
 
+            // Orbs
             orbs.forEach(o => {
-                let time = Date.now() * 0.005;
-                let size = 10 + Math.sin(time) * 2;
-                ctx.fillStyle = '#FFD700';
-                ctx.shadowBlur = 20; ctx.shadowColor = '#FFD700';
-                ctx.beginPath(); ctx.arc(o.position.x, o.position.y - camY, size, 0, Math.PI*2); ctx.fill();
-                ctx.shadowBlur = 0;
+                let s = 10 + Math.sin(Date.now() * 0.005) * 2;
+                ctx.fillStyle = '#FFD700'; ctx.beginPath(); ctx.arc(o.position.x, o.position.y - camY, s, 0, Math.PI*2); ctx.fill();
+                // Fake outer glow
+                ctx.fillStyle = 'rgba(255, 215, 0, 0.3)'; ctx.beginPath(); ctx.arc(o.position.x, o.position.y - camY, s*2, 0, Math.PI*2); ctx.fill();
             });
 
-            ctx.textAlign = "center";
-            ctx.font = "bold 20px Segoe UI";
-            for(let i=floatingTexts.length-1; i>=0; i--) {
-                let ft = floatingTexts[i];
-                ft.y -= 1; ft.life -= 0.02;
-                if(ft.life <= 0) floatingTexts.splice(i, 1);
-                else {
-                    ctx.fillStyle = ft.color || `rgba(255, 255, 255, ${ft.life})`;
-                    ctx.fillText(ft.text, ft.x, ft.y - camY);
-                }
-            }
-
+            // Particles (Batch)
             for(let i=particles.length-1; i>=0; i--) {
-                let p = particles[i];
-                p.x += p.vx; p.y += p.vy; p.life -= 0.03;
+                let p = particles[i]; p.x += p.vx; p.y += p.vy; p.life -= 0.03;
                 if(p.life <= 0) particles.splice(i, 1);
                 else {
-                    ctx.fillStyle = p.color;
-                    ctx.shadowBlur = 10; ctx.shadowColor = p.color;
+                    ctx.fillStyle = p.color; ctx.globalAlpha = p.life;
                     ctx.beginPath(); ctx.arc(p.x, p.y - camY, p.size, 0, Math.PI*2); ctx.fill();
-                    ctx.shadowBlur = 0;
                 }
             }
+            ctx.globalAlpha = 1.0;
 
+            // Player & Lava (Fake Glows)
             let mainColor = `hsl(${globalHue}, 100%, 60%)`;
-            player.render.fillStyle = isGrounded ? '#fff' : mainColor;
             
-            ctx.shadowBlur = 30; ctx.shadowColor = mainColor;
-            ctx.fillStyle = player.render.fillStyle;
+            // Player Core
+            ctx.fillStyle = isGrounded ? '#fff' : mainColor;
             ctx.fillRect(player.position.x - 15, player.position.y - camY - 15, 30, 30);
             
-            ctx.shadowBlur = 60; ctx.shadowColor = '#FF0000';
-            ctx.fillStyle = '#FF3333';
-            ctx.fillRect(lava.position.x - window.innerWidth, lava.position.y - camY - 500, window.innerWidth * 2, 1000);
-            ctx.shadowBlur = 0;
+            // Player Glow (Larger transparent rect)
+            ctx.fillStyle = isGrounded ? 'rgba(255,255,255,0.3)' : `hsla(${globalHue}, 100%, 60%, 0.3)`;
+            ctx.fillRect(player.position.x - 25, player.position.y - camY - 25, 50, 50);
 
+            // Lava
+            ctx.fillStyle = '#F00';
+            ctx.fillRect(lava.position.x - window.innerWidth, lava.position.y - camY - 500, window.innerWidth * 2, 1000);
+            
+            ctx.globalCompositeOperation = 'source-over'; // Reset to normal drawing
+
+            // Floating Text
+            ctx.textAlign = "center"; ctx.font = "bold 20px Segoe UI";
+            for(let i=floatingTexts.length-1; i>=0; i--) {
+                let ft = floatingTexts[i]; ft.y -= 1; ft.life -= 0.02;
+                if(ft.life <= 0) floatingTexts.splice(i, 1);
+                else { ctx.fillStyle = ft.color; ctx.globalAlpha = ft.life; ctx.fillText(ft.text, ft.x, ft.y - camY); }
+            }
+            ctx.globalAlpha = 1.0;
+
+            // Aim Line
             if (isDragging && !isGameOver) {
                 let sx = player.position.x; let sy = player.position.y - camY;
                 let dx = dragStart.x - dragCurrent.x; let dy = dragStart.y - dragCurrent.y;
@@ -569,7 +442,6 @@
                 
                 ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx+dx, sy+dy);
                 ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.setLineDash([10, 10]); ctx.stroke(); ctx.setLineDash([]);
-                
                 let perc = Math.min(dist/max, 1.0);
                 ctx.fillStyle = `rgba(255, ${255*(1-perc)}, ${255*(1-perc)}, 1)`;
                 ctx.fillText(Math.floor(perc*100)+"%", sx+20, sy-20);
@@ -578,12 +450,7 @@
 
         function createExplosion(x, y, color, count) {
             shakeIntensity = 5;
-            for(let i=0; i<count; i++) {
-                particles.push({
-                    x: x, y: y, vx: (Math.random()-0.5)*10, vy: (Math.random()-0.5)*10,
-                    life: 1.0, color: color, size: Math.random()*4
-                });
-            }
+            for(let i=0; i<count; i++) particles.push({ x: x, y: y, vx: (Math.random()-0.5)*10, vy: (Math.random()-0.5)*10, life: 1.0, color: color, size: Math.random()*4 });
         }
 
         function gameOver() {
@@ -591,8 +458,7 @@
             document.getElementById('game-over').style.display = 'block';
             document.getElementById('final-score').innerText = "Height: " + score + "m";
             if(score > highScore) { localStorage.setItem('chrono_jump_best', score); }
-            engine.timing.timeScale = 0; 
-            playSound('break');
+            engine.timing.timeScale = 0; playSound('break');
         }
 
         window.addEventListener('resize', () => { render.canvas.width = window.innerWidth; render.canvas.height = window.innerHeight; });
