@@ -129,7 +129,7 @@
             Bodies = Matter.Bodies, Composite = Matter.Composite, Events = Matter.Events,
             Body = Matter.Body, Vector = Matter.Vector;
 
-        const DPR = 1;
+        const DPR = 0.7;
 
         const engine = Engine.create();
         const world = engine.world;
@@ -149,7 +149,10 @@
         });
 
         Render.run(render);
-        const runner = Runner.create();
+        const runner = Runner.create({
+            isFixed: true, // Detta tvingar spelet att hålla rätt hastighet
+            delta: 1000 / 60 // Mål: 60 FPS
+        });
         Runner.run(runner, engine);
 
         // --- AUDIO ---
