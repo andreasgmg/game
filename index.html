@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>CHRONO JUMP: HYPER</title>
     <style>
         body {
@@ -10,6 +10,7 @@
             background-color: #050505;
             font-family: 'Segoe UI', sans-serif;
             user-select: none;
+            touch-action: none; /* Prevents scrolling on mobile */
         }
         #ui {
             position: absolute; top: 20px; width: 100%;
@@ -41,6 +42,7 @@
             border-radius: 20px;
             text-align: center; pointer-events: auto;
             z-index: 100;
+            min-width: 200px;
         }
         button {
             padding: 15px 50px; font-size: 24px; font-weight: bold;
@@ -59,7 +61,7 @@
         <div id="score">0m</div>
         <div id="combo-container"><div id="combo">COMBO x2</div></div>
         <div id="high-score">BEST: 0m</div>
-        <div id="hint">Chain Perfect Landings for Multipliers</div>
+        <div id="hint">Drag to Aim • White Platforms Regenerate</div>
     </div>
 
     <div id="game-over">
@@ -126,7 +128,6 @@
                 gain.gain.exponentialRampToValueAtTime(0.01, time + 0.3);
             } else if (type === 'perfect') {
                 osc.type = 'triangle';
-                // Pitch rises with combo
                 let p = 600 + (combo * 100);
                 osc.frequency.setValueAtTime(p, time);
                 osc.frequency.exponentialRampToValueAtTime(p + 300, time + 0.2);
@@ -154,7 +155,7 @@
         let floatingTexts = [];
         let stars = [];
         let embers = [];
-        let trail = []; // Player Trail
+        let trail = []; 
         
         let isDragging = false;
         let dragStart = { x: 0, y: 0 };
@@ -169,7 +170,7 @@
         let shakeIntensity = 0;
         let globalHue = 180;
         
-        let combo = 0; // Combo Multiplier
+        let combo = 0; 
 
         let lastPlatX = window.innerWidth / 2;
         let lastPlatY = window.innerHeight - 50;
@@ -188,7 +189,7 @@
                     alpha: Math.random()
                 });
             }
-            // Embers (Lava Particles)
+            // Embers
             for(let i=0; i<30; i++) {
                 embers.push({
                     x: Math.random() * window.innerWidth,
@@ -271,6 +272,7 @@
                     orbs.push(orb);
                     Composite.add(world, orb);
                 }
+
                 lastPlatX = nextX; lastPlatY = nextY;
             }
         }
@@ -365,38 +367,53 @@
             floatingTexts.push({ text: text, x: x, y: y, life: 1.0, color: color });
         }
 
-        // --- INPUT ---
-        document.addEventListener('mousedown', e => {
+        // --- INPUT (MOUSE & TOUCH) --
+        function handleStart(x, y) {
             if (isGameOver) return;
             if (isGrounded) {
                 isDragging = true;
-                dragStart = { x: e.clientX, y: e.clientY };
-                dragCurrent = { x: e.clientX, y: e.clientY };
+                dragStart = { x: x, y: y };
+                dragCurrent = { x: x, y: y };
                 engine.timing.timeScale = 0.1; 
             }
-        });
-        document.addEventListener('mousemove', e => { if (isDragging) dragCurrent = { x: e.clientX, y: e.clientY }; });
-        document.addEventListener('mouseup', e => {
+        }
+
+        function handleMove(x, y) {
+            if (isDragging) dragCurrent = { x: x, y: y };
+        }
+
+        function handleEnd() {
             if (!isDragging) return;
             isDragging = false;
             engine.timing.timeScale = 1.0; 
+
             let dx = dragStart.x - dragCurrent.x;
             let dy = dragStart.y - dragCurrent.y;
             let force = Vector.mult(Vector.normalise({ x: dx, y: dy }), Math.min(Vector.magnitude({ x: dx*0.0006, y: dy*0.0006 }), 0.09));
+
             if (Vector.magnitude(force) > 0.005) {
                 Body.applyForce(player, player.position, force);
                 createExplosion(player.position.x, player.position.y, `hsl(${globalHue}, 100%, 80%)`, 10);
                 playSound('jump', 1 + (combo*0.1));
                 isGrounded = false;
             }
-        });
+        }
+
+        // Mouse
+        document.addEventListener('mousedown', e => handleStart(e.clientX, e.clientY));
+        document.addEventListener('mousemove', e => handleMove(e.clientX, e.clientY));
+        document.addEventListener('mouseup', handleEnd);
+
+        // Touch
+        document.addEventListener('touchstart', e => { handleStart(e.touches[0].clientX, e.touches[0].clientY); }, {passive: false});
+        document.addEventListener('touchmove', e => { e.preventDefault(); handleMove(e.touches[0].clientX, e.touches[0].clientY); }, {passive: false});
+        document.addEventListener('touchend', handleEnd);
 
         // --- LOOP ---
         Events.on(engine, 'beforeUpdate', () => {
             if (isGameOver) return;
             globalHue = (180 + (score * 2)) % 360;
 
-            // Player Trail Logic
             if (!isGrounded) {
                 trail.push({ x: player.position.x, y: player.position.y });
                 if (trail.length > 20) trail.shift();
@@ -461,7 +478,6 @@
             const ctx = render.context;
             let camY = render.bounds.min.y;
 
-            // BACKGROUND GRADIENT
             let grad = ctx.createLinearGradient(0, 0, 0, window.innerHeight);
             grad.addColorStop(0, `hsl(${globalHue}, 60%, 5%)`);
             grad.addColorStop(1, '#000');
@@ -470,7 +486,6 @@
             ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
             ctx.globalCompositeOperation = 'source-over';
 
-            // STARS
             ctx.fillStyle = '#fff';
             stars.forEach(s => {
                 let sy = (s.y - camY * s.speed) % window.innerHeight;
@@ -480,22 +495,15 @@
             });
             ctx.globalAlpha = 1.0;
 
-            // EMBERS
             ctx.fillStyle = '#FF5500';
             embers.forEach(e => {
-                // Embers rise relative to lava
                 e.y -= e.speed;
-                // Respawn if too high
-                let ly = lava.position.y - camY - 500;
-                let screenY = e.y - camY;
                 if (e.y < lava.position.y - 1500) { e.y = lava.position.y; e.x = Math.random() * window.innerWidth; }
-                
                 ctx.globalAlpha = Math.random() * 0.5 + 0.5;
                 ctx.beginPath(); ctx.arc(e.x, e.y - camY, e.size, 0, Math.PI*2); ctx.fill();
             });
             ctx.globalAlpha = 1.0;
 
-            // PLAYER TRAIL
             if (trail.length > 1) {
                 ctx.beginPath();
                 ctx.moveTo(trail[0].x, trail[0].y - camY);
@@ -508,7 +516,6 @@
                 ctx.stroke();
             }
 
-            // ORBS
             orbs.forEach(o => {
                 let time = Date.now() * 0.005;
                 let size = 10 + Math.sin(time) * 2;
@@ -518,7 +525,6 @@
                 ctx.shadowBlur = 0;
             });
 
-            // TEXT
             ctx.textAlign = "center";
             ctx.font = "bold 20px Segoe UI";
             for(let i=floatingTexts.length-1; i>=0; i--) {
@@ -531,7 +537,6 @@
                 }
             }
 
-            // PARTICLES
             for(let i=particles.length-1; i>=0; i--) {
                 let p = particles[i];
                 p.x += p.vx; p.y += p.vy; p.life -= 0.03;
@@ -544,7 +549,6 @@
                 }
             }
 
-            // PLAYER & LAVA
             let mainColor = `hsl(${globalHue}, 100%, 60%)`;
             player.render.fillStyle = isGrounded ? '#fff' : mainColor;
             
@@ -557,7 +561,6 @@
             ctx.fillRect(lava.position.x - window.innerWidth, lava.position.y - camY - 500, window.innerWidth * 2, 1000);
             ctx.shadowBlur = 0;
 
-            // AIM LINE
             if (isDragging && !isGameOver) {
                 let sx = player.position.x; let sy = player.position.y - camY;
                 let dx = dragStart.x - dragCurrent.x; let dy = dragStart.y - dragCurrent.y;
