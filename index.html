@@ -2,16 +2,17 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>CHRONO JUMP: HYPER</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>CHRONO JUMP: HYPER (Phaser Edition)</title>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
     <style>
         body {
             margin: 0; padding: 0; overflow: hidden;
             background-color: #050505;
             font-family: 'Segoe UI', sans-serif;
-            user-select: none;
-            touch-action: none; /* Prevents scrolling on mobile */
+            user-select: none; touch-action: none;
         }
+        /* Keep your original UI, it works perfectly over Phaser */
         #ui {
             position: absolute; top: 20px; width: 100%;
             text-align: center; pointer-events: none;
@@ -21,9 +22,7 @@
             font-size: 80px; font-weight: 900; margin: 0; 
             letter-spacing: 2px; text-shadow: 0 5px 15px rgba(0,0,0,0.5);
         }
-        #combo-container {
-            height: 30px; margin-top: -10px; margin-bottom: 10px;
-        }
+        #combo-container { height: 30px; margin-top: -10px; margin-bottom: 10px; }
         #combo {
             font-size: 24px; font-weight: 800; color: #FFD700;
             opacity: 0; transition: transform 0.1s;
@@ -41,8 +40,7 @@
             box-shadow: 0 0 50px rgba(0,0,0,0.8);
             border-radius: 20px;
             text-align: center; pointer-events: auto;
-            z-index: 100;
-            min-width: 200px;
+            z-index: 100; min-width: 200px;
         }
         button {
             padding: 15px 50px; font-size: 24px; font-weight: bold;
@@ -53,7 +51,6 @@
         button:hover { transform: scale(1.05); box-shadow: 0 0 30px #fff; }
         button:active { transform: scale(0.95); }
     </style>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
 </head>
 <body>
 
@@ -67,41 +64,18 @@
     <div id="game-over">
         <h1 style="color: #fff; margin: 0; font-size: 50px;">OBLITERATED</h1>
         <p id="final-score" style="color: #ccc; font-size: 24px;">Height: 0m</p>
-        <button onclick="location.reload()">RESURRECT</button>
+        <button id="restart-btn">RESURRECT</button>
     </div>
 
     <script>
-        const Engine = Matter.Engine, Render = Matter.Render, Runner = Matter.Runner,
-              Bodies = Matter.Bodies, Composite = Matter.Composite, Events = Matter.Events,
-              Body = Matter.Body, Vector = Matter.Vector;
-
-        const engine = Engine.create();
-        const world = engine.world;
-        const render = Render.create({
-            element: document.body,
-            engine: engine,
-            options: {
-                width: window.innerWidth,
-                height: window.innerHeight,
-                background: 'transparent',
-                wireframes: false,
-                hasBounds: true
-            }
-        });
-
-        Render.run(render);
-        const runner = Runner.create();
-        Runner.run(runner, engine);
-
-        // --- AUDIO ---
+        // --- AUDIO ENGINE (Kept your original logic, wrapped for re-use) ---
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         const audioCtx = new AudioContext();
 
-        function playSound(type, pitchMod = 1) {
+        function playSound(type, pitchMod = 1, combo = 0) {
             if (audioCtx.state === 'suspended') audioCtx.resume();
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
-            
             let time = audioCtx.currentTime;
 
             if (type === 'jump') {
@@ -140,463 +114,514 @@
                 gain.gain.setValueAtTime(0.1, time);
                 gain.gain.exponentialRampToValueAtTime(0.01, time + 0.3);
             }
-
             osc.connect(gain);
             gain.connect(audioCtx.destination);
             osc.start();
             osc.stop(time + 0.5);
         }
 
-        // --- VARIABLES ---
-        let player, lava;
-        let platforms = [];
-        let particles = [];
-        let orbs = [];
-        let floatingTexts = [];
-        let stars = [];
-        let embers = [];
-        let trail = []; 
-        
-        let isDragging = false;
-        let dragStart = { x: 0, y: 0 };
-        let dragCurrent = { x: 0, y: 0 };
-        let isGrounded = false;
-        
-        let score = 0;
-        let highScore = localStorage.getItem('chrono_jump_best') || 0;
-        let lavaSpeed = 0.5; 
-        let isGameOver = false;
-        let cameraY = 0;
-        let shakeIntensity = 0;
-        let globalHue = 180;
-        
-        let combo = 0; 
-
-        let lastPlatX = window.innerWidth / 2;
-        let lastPlatY = window.innerHeight - 50;
-        
-        // --- SETUP ---
-        function init() {
-            document.getElementById('high-score').innerText = "BEST: " + highScore + "m";
-
-            // Stars
-            for(let i=0; i<80; i++) {
-                stars.push({
-                    x: Math.random() * window.innerWidth,
-                    y: Math.random() * window.innerHeight,
-                    size: Math.random() * 2,
-                    speed: Math.random() * 0.5 + 0.1,
-                    alpha: Math.random()
-                });
-            }
-            // Embers
-            for(let i=0; i<30; i++) {
-                embers.push({
-                    x: Math.random() * window.innerWidth,
-                    y: window.innerHeight + Math.random() * 500,
-                    size: Math.random() * 4 + 1,
-                    speed: Math.random() * 2 + 1
-                });
+        // --- PHASER SCENE ---
+        class GameScene extends Phaser.Scene {
+            constructor() {
+                super({ key: 'GameScene' });
             }
 
-            // Player
-            player = Bodies.rectangle(window.innerWidth/2, window.innerHeight - 200, 30, 30, {
-                friction: 0.1, frictionAir: 0.01, restitution: 0.0, density: 0.002,
-                render: { fillStyle: '#fff' }
-            });
-            
-            // Start Platform
-            let startPlat = Bodies.rectangle(window.innerWidth/2, window.innerHeight - 50, 400, 40, {
-                isStatic: true, render: { fillStyle: '#333' }, visited: true
-            });
-            platforms.push(startPlat);
+            preload() {
+                // Generate a simple white pixel texture for everything (allows tinting)
+                let g = this.make.graphics({x:0, y:0, add:false});
+                g.fillStyle(0xffffff);
+                g.fillRect(0,0,1,1);
+                g.generateTexture('pixel', 1, 1);
+            }
 
-            // Lava
-            let lavaStart = window.innerHeight + 600; 
-            lava = Bodies.rectangle(window.innerWidth/2, lavaStart, window.innerWidth * 2, 1000, {
-                isStatic: true, isSensor: true, 
-                render: { fillStyle: '#FF3333', opacity: 0.8 }
-            });
+            create() {
+                // Variables
+                this.score = 0;
+                this.highScore = localStorage.getItem('chrono_jump_best') || 0;
+                document.getElementById('high-score').innerText = "BEST: " + this.highScore + "m";
+                this.combo = 0;
+                this.lavaSpeed = 0.5;
+                this.globalHue = 180;
+                this.isGrounded = false;
+                this.isDragging = false;
+                this.dragStart = new Phaser.Math.Vector2();
+                this.dragCurrent = new Phaser.Math.Vector2();
+                this.lastPlatY = this.scale.height - 50;
+                this.lastPlatX = this.scale.width / 2;
+                this.generatedY = this.lastPlatY;
 
-            Composite.add(world, [player, startPlat, lava]);
-            generatePath();
-        }
-
-        function generatePath() {
-            let limit = cameraY - 1000; 
-            while (lastPlatY > limit) {
-                let jumpY = 130 + Math.random() * 60; 
-                let nextY = lastPlatY - jumpY;
-
-                let minShift = 90; let maxShift = 250; 
-                let dir = 1;
-                if (lastPlatX < window.innerWidth * 0.3) dir = 1; 
-                else if (lastPlatX > window.innerWidth * 0.7) dir = -1; 
-                else dir = Math.random() > 0.5 ? 1 : -1; 
-
-                let shift = minShift + (Math.random() * (maxShift - minShift));
-                let nextX = lastPlatX + (shift * dir);
-
-                if (nextX < 50) nextX = 50 + Math.abs(50 - nextX); 
-                else if (nextX > window.innerWidth - 50) nextX = (window.innerWidth - 50) - Math.abs(nextX - (window.innerWidth - 50));
-
-                let typeRoll = Math.random();
-                let isMoving = typeRoll > 0.8;
-                let isBreakable = !isMoving && typeRoll > 0.6;
-                let color = isMoving ? '#444' : '#222';
-                if (isBreakable) color = '#fff';
-
-                let w = 90 + Math.random() * 60; 
-
-                let plat = Bodies.rectangle(nextX, nextY, w, 20, {
-                    isStatic: true,
-                    render: { fillStyle: color },
-                    moving: isMoving,
-                    breakable: isBreakable,
-                    speed: 1 + Math.random(),
-                    limitLeft: Math.max(20, nextX - 100),
-                    limitRight: Math.min(window.innerWidth - 20, nextX + 100),
-                    dir: Math.random() > 0.5 ? 1 : -1,
-                    broken: false,
-                    visited: false 
-                });
-
-                platforms.push(plat);
-                Composite.add(world, plat);
-
-                if (!isBreakable && Math.random() < 0.15) {
-                    let orb = Bodies.circle(nextX, nextY - 40, 10, {
-                        isStatic: true, isSensor: true, label: 'orb',
-                        render: { fillStyle: '#FFD700' }
-                    });
-                    orbs.push(orb);
-                    Composite.add(world, orb);
+                // --- Graphics Setup ---
+                // Background Gradient
+                this.bgGraphics = this.add.graphics();
+                
+                // Stars (Parallax)
+                this.stars = [];
+                for(let i=0; i<80; i++) {
+                    let star = this.add.image(Math.random() * this.scale.width, Math.random() * this.scale.height, 'pixel');
+                    star.setScrollFactor(0); // Fixed to camera, we move manually for wrapping
+                    star.alpha = Math.random();
+                    star.setScale(Math.random() * 2);
+                    star.speed = Math.random() * 0.5 + 0.1;
+                    this.stars.push(star);
                 }
 
-                lastPlatX = nextX; lastPlatY = nextY;
-            }
-        }
+                // Embers
+                this.embers = this.add.particles(0, 0, 'pixel', {
+                    x: { min: 0, max: this.scale.width },
+                    y: this.scale.height + 100,
+                    lifespan: 4000,
+                    speedY: { min: -100, max: -200 },
+                    scale: { start: 2, end: 0 },
+                    quantity: 1,
+                    frequency: 100,
+                    tint: 0xff5500,
+                    blendMode: 'ADD',
+                    scrollFactor: 0 // We'll manual update to simulate depth
+                });
 
-        // --- COLLISIONS ---
-        Events.on(engine, 'collisionStart', (event) => {
-            event.pairs.forEach((pair) => {
-                let other = pair.bodyA === player ? pair.bodyB : pair.bodyA;
+                // Trail Effect
+                this.trailGraphics = this.add.graphics();
+                this.trailPoints = [];
+
+                // --- Physics Setup ---
+                this.matter.world.setBounds(0, -Infinity, this.scale.width, Infinity);
                 
-                if (other.label === 'orb') { collectOrb(other); return; }
+                // Player
+                this.player = this.matter.add.image(this.scale.width/2, this.scale.height - 200, 'pixel');
+                this.player.setDisplaySize(30, 30);
+                this.player.setFriction(0.1, 0.01); // friction, airFriction
+                this.player.setDensity(0.002);
+                this.player.setBounce(0);
+                this.player.setFixedRotation();
+                // Add Glow to Player
+                this.player.postFX.addBloom(0xffffff, 1, 1, 2, 1.2);
 
-                if (other.isStatic && !other.isSensor) {
-                    if (player.position.y < other.position.y) {
-                        if (!isGrounded) {
-                            playSound('land');
-                            createExplosion(player.position.x, player.position.y + 15, `hsl(${globalHue}, 100%, 50%)`, 5);
-                            
-                            // PERFECT CHECK
-                            let diff = Math.abs(player.position.x - other.position.x);
-                            if (diff < 15 && !other.visited) { 
-                                // PERFECT
-                                combo++;
-                                playSound('perfect');
-                                let pts = 5 * combo;
-                                score += pts; 
-                                createFloatingText("PERFECT x" + combo, player.position.x, player.position.y - 40, '#FFD700');
-                                
-                                // Flash Platform
-                                let originalColor = other.render.fillStyle;
-                                other.render.fillStyle = '#FFD700'; 
-                                setTimeout(() => { if(!other.broken) other.render.fillStyle = originalColor; }, 200);
-                                other.visited = true; 
-                            } else if (!other.visited) {
-                                // NORMAL LANDING (Reset Combo)
-                                combo = 0;
-                                other.visited = true;
-                            }
-                            updateComboUI();
-                        }
-                        isGrounded = true;
+                // Platforms Group
+                this.platforms = []; // Array of { body, sprite, config }
+                
+                // Start Platform
+                this.createPlatform(this.scale.width/2, this.scale.height - 50, 400, false, false);
+
+                // Lava
+                this.lavaY = this.scale.height + 600;
+                this.lavaRect = this.add.rectangle(this.scale.width/2, this.lavaY, this.scale.width * 2, 1000, 0xFF3333, 0.8);
+                this.lavaBody = this.matter.add.rectangle(this.scale.width/2, this.lavaY, this.scale.width * 2, 1000, {
+                    isStatic: true, isSensor: true
+                });
+                
+                // Lava FX
+                const lavafx = this.lavaRect.postFX.addBloom(0xff0000, 1, 1, 2, 2);
+
+                // --- Input ---
+                this.input.on('pointerdown', (pointer) => {
+                    if (this.isGrounded) {
+                        this.isDragging = true;
+                        this.dragStart.set(pointer.x, pointer.y);
+                        this.dragCurrent.set(pointer.x, pointer.y);
+                        this.matter.world.engine.timing.timeScale = 0.1; // Slow motion
+                    }
+                });
+
+                this.input.on('pointermove', (pointer) => {
+                    if (this.isDragging) {
+                        this.dragCurrent.set(pointer.x, pointer.y);
+                    }
+                });
+
+                this.input.on('pointerup', () => {
+                    if (this.isDragging) {
+                        this.isDragging = false;
+                        this.matter.world.engine.timing.timeScale = 1.0;
                         
-                        if (other.breakable && !other.broken) {
-                            other.broken = true;
-                            other.render.fillStyle = '#FF9999';
-                            setTimeout(() => breakPlatform(other), 800);
+                        let dx = this.dragStart.x - this.dragCurrent.x;
+                        let dy = this.dragStart.y - this.dragCurrent.y;
+                        let vec = new Phaser.Math.Vector2(dx, dy);
+                        
+                        // Limit force
+                        let mag = vec.length();
+                        let forceMag = Math.min(mag * 0.0006, 0.09);
+                        
+                        if (forceMag > 0.005) {
+                            vec.normalize().scale(forceMag);
+                            this.player.applyForce(vec);
+                            this.createExplosion(this.player.x, this.player.y, `hsl(${this.globalHue}, 100%, 80%)`, 10);
+                            playSound('jump', 1 + (this.combo * 0.1));
+                            this.isGrounded = false;
                         }
                     }
-                }
-            });
-        });
+                });
 
-        function updateComboUI() {
-            let el = document.getElementById('combo');
-            if (combo > 1) {
-                el.innerText = "COMBO x" + combo;
-                el.style.opacity = 1;
-                el.style.transform = "scale(1.5)";
-                setTimeout(() => el.style.transform = "scale(1)", 100);
-            } else {
-                el.style.opacity = 0;
-            }
-        }
+                // --- Collisions ---
+                this.matter.world.on('collisionstart', (event) => {
+                    event.pairs.forEach((pair) => {
+                        let other = pair.bodyA === this.player.body ? pair.bodyB : pair.bodyA;
+                        let sprite = other.gameObject;
 
-        function collectOrb(orb) {
-            if (!orbs.includes(orb)) return;
-            Composite.remove(world, orb);
-            orbs = orbs.filter(o => o !== orb);
-            playSound('orb');
-            createExplosion(orb.position.x, orb.position.y, '#FFD700', 10);
-            Body.translate(lava, { x: 0, y: 150 });
-            createFloatingText("-LAVA", orb.position.x, orb.position.y - 20, '#FFD700');
-        }
+                        // Orb Collection
+                        if (sprite && sprite.label === 'orb') {
+                            this.collectOrb(sprite);
+                            return;
+                        }
 
-        function breakPlatform(plat) {
-            if (!platforms.includes(plat)) return; 
-            createExplosion(plat.position.x, plat.position.y, '#FFF', 15);
-            playSound('break');
-            Composite.remove(world, plat);
-            setTimeout(() => respawnPlatform(plat), 2500); 
-        }
+                        // Landing on Platform
+                        if (other.isStatic && !other.isSensor && this.player.body.velocity.y > 0) {
+                            // Simple check if player is above the platform
+                            if (this.player.y < other.position.y - 10) { 
+                                this.handleLanding(other);
+                            }
+                        }
+                    });
+                });
 
-        function respawnPlatform(plat) {
-            if (!platforms.includes(plat)) return; 
-            plat.broken = false;
-            plat.render.fillStyle = '#fff';
-            Composite.add(world, plat);
-            playSound('spawn');
-            createExplosion(plat.position.x, plat.position.y, '#00FF00', 8);
-        }
-
-        function createFloatingText(text, x, y, color = '#fff') {
-            floatingTexts.push({ text: text, x: x, y: y, life: 1.0, color: color });
-        }
-
-        // --- INPUT (MOUSE & TOUCH) --
-        function handleStart(x, y) {
-            if (isGameOver) return;
-            if (isGrounded) {
-                isDragging = true;
-                dragStart = { x: x, y: y };
-                dragCurrent = { x: x, y: y };
-                engine.timing.timeScale = 0.1; 
-            }
-        }
-
-        function handleMove(x, y) {
-            if (isDragging) dragCurrent = { x: x, y: y };
-        }
-
-        function handleEnd() {
-            if (!isDragging) return;
-            isDragging = false;
-            engine.timing.timeScale = 1.0; 
-
-            let dx = dragStart.x - dragCurrent.x;
-            let dy = dragStart.y - dragCurrent.y;
-            let force = Vector.mult(Vector.normalise({ x: dx, y: dy }), Math.min(Vector.magnitude({ x: dx*0.0006, y: dy*0.0006 }), 0.09));
-
-            if (Vector.magnitude(force) > 0.005) {
-                Body.applyForce(player, player.position, force);
-                createExplosion(player.position.x, player.position.y, `hsl(${globalHue}, 100%, 80%)`, 10);
-                playSound('jump', 1 + (combo*0.1));
-                isGrounded = false;
-            }
-        }
-
-        // Mouse
-        document.addEventListener('mousedown', e => handleStart(e.clientX, e.clientY));
-        document.addEventListener('mousemove', e => handleMove(e.clientX, e.clientY));
-        document.addEventListener('mouseup', handleEnd);
-
-        // Touch
-        document.addEventListener('touchstart', e => { handleStart(e.touches[0].clientX, e.touches[0].clientY); }, {passive: false});
-        document.addEventListener('touchmove', e => { e.preventDefault(); handleMove(e.touches[0].clientX, e.touches[0].clientY); }, {passive: false});
-        document.addEventListener('touchend', handleEnd);
-
-        // --- LOOP ---
-        Events.on(engine, 'beforeUpdate', () => {
-            if (isGameOver) return;
-            globalHue = (180 + (score * 2)) % 360;
-
-            if (!isGrounded) {
-                trail.push({ x: player.position.x, y: player.position.y });
-                if (trail.length > 20) trail.shift();
-            } else {
-                if (trail.length > 0) trail.shift();
+                // Aim Line Graphics
+                this.aimGraphics = this.add.graphics();
             }
 
-            if (player.position.x < 15) { Body.setPosition(player, { x: 15, y: player.position.y }); Body.setVelocity(player, { x: 0, y: player.velocity.y }); }
-            if (player.position.x > window.innerWidth - 15) { Body.setPosition(player, { x: window.innerWidth - 15, y: player.position.y }); Body.setVelocity(player, { x: 0, y: player.velocity.y }); }
+            createPlatform(x, y, width, moving, breakable) {
+                let color = moving ? 0x444444 : 0x222222;
+                if (breakable) color = 0xffffff;
 
-            lavaSpeed += 0.00005; 
-            Body.translate(lava, { x: 0, y: -lavaSpeed * engine.timing.timeScale });
-            Body.setPosition(lava, { x: window.innerWidth/2, y: lava.position.y }); 
-
-            let targetY = player.position.y - window.innerHeight * 0.7;
-            cameraY += (targetY - cameraY) * 0.08;
-            
-            if (shakeIntensity > 0) {
-                let sx = (Math.random()-0.5)*shakeIntensity;
-                let sy = (Math.random()-0.5)*shakeIntensity;
-                render.bounds.min.x = sx; render.bounds.max.x = window.innerWidth + sx;
-                render.bounds.min.y = cameraY + sy; render.bounds.max.y = cameraY + window.innerHeight + sy;
-                shakeIntensity *= 0.9;
-            } else {
-                render.bounds.min.x = 0; render.bounds.max.x = window.innerWidth;
-                render.bounds.min.y = cameraY; render.bounds.max.y = cameraY + window.innerHeight;
-            }
-
-            if (player.position.y > lava.bounds.min.y + 40) gameOver();
-
-            let rawHeight = (window.innerHeight - 200) - player.position.y;
-            let m = Math.max(0, Math.floor(rawHeight / 100));
-            if (m > score) score = m;
-            document.getElementById('score').innerText = score + "m";
-            document.getElementById('score').style.color = `hsl(${globalHue}, 100%, 70%)`;
-
-            platforms.forEach(p => {
-                if (p.moving) {
-                    Body.translate(p, { x: p.speed * p.dir * engine.timing.timeScale, y: 0 });
-                    if (p.position.x > p.limitRight) p.dir = -1;
-                    if (p.position.x < p.limitLeft) p.dir = 1;
-                }
-            });
-
-            for (let i = platforms.length - 1; i >= 0; i--) {
-                if (platforms[i].position.y > lava.position.y + 200) {
-                    Composite.remove(world, platforms[i]);
-                    platforms.splice(i, 1);
-                }
-            }
-            for (let i = orbs.length - 1; i >= 0; i--) {
-                if (orbs[i].position.y > lava.position.y + 200) {
-                    Composite.remove(world, orbs[i]);
-                    orbs.splice(i, 1);
-                }
-            }
-            generatePath();
-        });
-
-        // --- RENDER ---
-        Events.on(render, 'afterRender', () => {
-            const ctx = render.context;
-            let camY = render.bounds.min.y;
-
-            let grad = ctx.createLinearGradient(0, 0, 0, window.innerHeight);
-            grad.addColorStop(0, `hsl(${globalHue}, 60%, 5%)`);
-            grad.addColorStop(1, '#000');
-            ctx.globalCompositeOperation = 'destination-over';
-            ctx.fillStyle = grad;
-            ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
-            ctx.globalCompositeOperation = 'source-over';
-
-            ctx.fillStyle = '#fff';
-            stars.forEach(s => {
-                let sy = (s.y - camY * s.speed) % window.innerHeight;
-                if (sy < 0) sy += window.innerHeight;
-                ctx.globalAlpha = s.alpha;
-                ctx.beginPath(); ctx.arc(s.x, sy, s.size, 0, Math.PI*2); ctx.fill();
-            });
-            ctx.globalAlpha = 1.0;
-
-            ctx.fillStyle = '#FF5500';
-            embers.forEach(e => {
-                e.y -= e.speed;
-                if (e.y < lava.position.y - 1500) { e.y = lava.position.y; e.x = Math.random() * window.innerWidth; }
-                ctx.globalAlpha = Math.random() * 0.5 + 0.5;
-                ctx.beginPath(); ctx.arc(e.x, e.y - camY, e.size, 0, Math.PI*2); ctx.fill();
-            });
-            ctx.globalAlpha = 1.0;
-
-            if (trail.length > 1) {
-                ctx.beginPath();
-                ctx.moveTo(trail[0].x, trail[0].y - camY);
-                for(let i=1; i<trail.length; i++) {
-                    ctx.lineTo(trail[i].x, trail[i].y - camY);
-                }
-                ctx.strokeStyle = `hsla(${globalHue}, 100%, 50%, 0.5)`;
-                ctx.lineWidth = 10;
-                ctx.lineCap = 'round';
-                ctx.stroke();
-            }
-
-            orbs.forEach(o => {
-                let time = Date.now() * 0.005;
-                let size = 10 + Math.sin(time) * 2;
-                ctx.fillStyle = '#FFD700';
-                ctx.shadowBlur = 20; ctx.shadowColor = '#FFD700';
-                ctx.beginPath(); ctx.arc(o.position.x, o.position.y - camY, size, 0, Math.PI*2); ctx.fill();
-                ctx.shadowBlur = 0;
-            });
-
-            ctx.textAlign = "center";
-            ctx.font = "bold 20px Segoe UI";
-            for(let i=floatingTexts.length-1; i>=0; i--) {
-                let ft = floatingTexts[i];
-                ft.y -= 1; ft.life -= 0.02;
-                if(ft.life <= 0) floatingTexts.splice(i, 1);
-                else {
-                    ctx.fillStyle = ft.color || `rgba(255, 255, 255, ${ft.life})`;
-                    ctx.fillText(ft.text, ft.x, ft.y - camY);
-                }
-            }
-
-            for(let i=particles.length-1; i>=0; i--) {
-                let p = particles[i];
-                p.x += p.vx; p.y += p.vy; p.life -= 0.03;
-                if(p.life <= 0) particles.splice(i, 1);
-                else {
-                    ctx.fillStyle = p.color;
-                    ctx.shadowBlur = 10; ctx.shadowColor = p.color;
-                    ctx.beginPath(); ctx.arc(p.x, p.y - camY, p.size, 0, Math.PI*2); ctx.fill();
-                    ctx.shadowBlur = 0;
-                }
-            }
-
-            let mainColor = `hsl(${globalHue}, 100%, 60%)`;
-            player.render.fillStyle = isGrounded ? '#fff' : mainColor;
-            
-            ctx.shadowBlur = 30; ctx.shadowColor = mainColor;
-            ctx.fillStyle = player.render.fillStyle;
-            ctx.fillRect(player.position.x - 15, player.position.y - camY - 15, 30, 30);
-            
-            ctx.shadowBlur = 60; ctx.shadowColor = '#FF0000';
-            ctx.fillStyle = '#FF3333';
-            ctx.fillRect(lava.position.x - window.innerWidth, lava.position.y - camY - 500, window.innerWidth * 2, 1000);
-            ctx.shadowBlur = 0;
-
-            if (isDragging && !isGameOver) {
-                let sx = player.position.x; let sy = player.position.y - camY;
-                let dx = dragStart.x - dragCurrent.x; let dy = dragStart.y - dragCurrent.y;
-                let dist = Math.sqrt(dx*dx + dy*dy); let max = 150;
-                if(dist > max) { let r = max/dist; dx *= r; dy *= r; }
+                let rect = this.add.rectangle(x, y, width, 20, color);
+                let body = this.matter.add.gameObject(rect, { isStatic: true });
                 
-                ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx+dx, sy+dy);
-                ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.setLineDash([10, 10]); ctx.stroke(); ctx.setLineDash([]);
-                
-                let perc = Math.min(dist/max, 1.0);
-                ctx.fillStyle = `rgba(255, ${255*(1-perc)}, ${255*(1-perc)}, 1)`;
-                ctx.fillText(Math.floor(perc*100)+"%", sx+20, sy-20);
-            }
-        });
+                body.customProps = {
+                    visited: false,
+                    moving: moving,
+                    breakable: breakable,
+                    broken: false,
+                    speed: 1 + Math.random(),
+                    dir: Math.random() > 0.5 ? 1 : -1,
+                    limitLeft: Math.max(20, x - 100),
+                    limitRight: Math.min(this.scale.width - 20, x + 100)
+                };
 
-        function createExplosion(x, y, color, count) {
-            shakeIntensity = 5;
-            for(let i=0; i<count; i++) {
-                particles.push({
-                    x: x, y: y, vx: (Math.random()-0.5)*10, vy: (Math.random()-0.5)*10,
-                    life: 1.0, color: color, size: Math.random()*4
+                this.platforms.push({ body: body, sprite: rect });
+
+                // Chance to spawn Orb
+                if (!breakable && Math.random() < 0.15) {
+                    let orb = this.add.circle(x, y - 40, 10, 0xFFD700);
+                    orb.label = 'orb';
+                    let orbBody = this.matter.add.gameObject(orb, { isStatic: true, isSensor: true });
+                    orb.postFX.addBloom(0xffd700, 1, 1, 2, 1);
+                    
+                    // Simple tween for floating
+                    this.tweens.add({
+                        targets: orb,
+                        y: y - 50,
+                        duration: 1000,
+                        yoyo: true,
+                        repeat: -1
+                    });
+                }
+            }
+
+            handleLanding(body) {
+                if (!this.isGrounded) {
+                    playSound('land');
+                    this.createExplosion(this.player.x, this.player.y + 15, `hsl(${this.globalHue}, 100%, 50%)`, 5);
+                    
+                    let props = body.customProps;
+                    
+                    // Perfect Landing Check
+                    let diff = Math.abs(this.player.x - body.position.x);
+                    
+                    if (diff < 15 && !props.visited) {
+                        this.combo++;
+                        playSound('perfect', 1, this.combo);
+                        this.score += (5 * this.combo);
+                        this.createFloatingText("PERFECT x" + this.combo, this.player.x, this.player.y - 40, '#FFD700');
+                        
+                        // Flash Gold
+                        let originalColor = body.gameObject.fillColor;
+                        body.gameObject.fillColor = 0xFFD700;
+                        this.time.delayedCall(200, () => { 
+                            if(!props.broken) body.gameObject.fillColor = originalColor; 
+                        });
+                        props.visited = true;
+                    } else if (!props.visited) {
+                        this.combo = 0;
+                        props.visited = true;
+                    }
+
+                    this.updateComboUI();
+
+                    if (props.breakable && !props.broken) {
+                        props.broken = true;
+                        body.gameObject.fillColor = 0xFF9999;
+                        this.time.delayedCall(800, () => this.breakPlatform(body));
+                    }
+                }
+                this.isGrounded = true;
+            }
+
+            breakPlatform(body) {
+                if (!body.gameObject.active) return;
+                this.createExplosion(body.position.x, body.position.y, '#FFF', 15);
+                playSound('break');
+                
+                // Disable body/sprite
+                body.gameObject.setActive(false).setVisible(false);
+                this.matter.world.remove(body);
+
+                this.time.delayedCall(2500, () => {
+                    // Respawn
+                    body.gameObject.setActive(true).setVisible(true);
+                    body.gameObject.fillColor = 0xFFFFFF;
+                    body.customProps.broken = false;
+                    this.matter.world.add(body);
+                    playSound('spawn');
+                    this.createExplosion(body.position.x, body.position.y, '#00FF00', 8);
                 });
             }
+
+            collectOrb(orb) {
+                orb.destroy(); // Removes body and sprite
+                playSound('orb');
+                this.createExplosion(orb.x, orb.y, '#FFD700', 10);
+                this.lavaY += 150; // Push lava down
+                this.matter.body.translate(this.lavaBody, { x: 0, y: 150 });
+                this.lavaRect.y = this.lavaY;
+                this.createFloatingText("-LAVA", orb.x, orb.y - 20, '#FFD700');
+            }
+
+            createFloatingText(text, x, y, color) {
+                let txt = this.add.text(x, y, text, {
+                    fontFamily: 'Segoe UI', fontSize: '20px', fontStyle: 'bold', color: color
+                }).setOrigin(0.5);
+                
+                this.tweens.add({
+                    targets: txt,
+                    y: y - 50,
+                    alpha: 0,
+                    duration: 1000,
+                    onComplete: () => txt.destroy()
+                });
+            }
+
+            createExplosion(x, y, colorStr, count) {
+                // Convert HSL/Hex string to integer for Phaser
+                let color = Phaser.Display.Color.ValueToColor(colorStr).color;
+                
+                let emitter = this.add.particles(x, y, 'pixel', {
+                    speed: { min: 50, max: 150 },
+                    angle: { min: 0, max: 360 },
+                    scale: { start: 4, end: 0 },
+                    lifespan: 600,
+                    quantity: count,
+                    tint: color,
+                    blendMode: 'ADD'
+                });
+                
+                // Camera Shake
+                this.cameras.main.shake(100, 0.005);
+                
+                // Auto destroy emitter
+                this.time.delayedCall(600, () => emitter.destroy());
+            }
+
+            updateComboUI() {
+                let el = document.getElementById('combo');
+                if (this.combo > 1) {
+                    el.innerText = "COMBO x" + this.combo;
+                    el.style.opacity = 1;
+                    el.style.transform = "scale(1.5)";
+                    setTimeout(() => el.style.transform = "scale(1)", 100);
+                } else {
+                    el.style.opacity = 0;
+                }
+            }
+
+            generatePath() {
+                let cameraTop = this.cameras.main.scrollY;
+                let limit = cameraTop - 500; // Generate ahead
+
+                while (this.generatedY > limit) {
+                    let jumpY = 130 + Math.random() * 60;
+                    let nextY = this.generatedY - jumpY;
+
+                    let dir = 1;
+                    if (this.lastPlatX < this.scale.width * 0.3) dir = 1;
+                    else if (this.lastPlatX > this.scale.width * 0.7) dir = -1;
+                    else dir = Math.random() > 0.5 ? 1 : -1;
+
+                    let shift = 90 + (Math.random() * 160);
+                    let nextX = this.lastPlatX + (shift * dir);
+
+                    // Wall bounce logic for generation
+                    if (nextX < 50) nextX = 50 + Math.abs(50 - nextX);
+                    if (nextX > this.scale.width - 50) nextX = (this.scale.width - 50) - Math.abs(nextX - (this.scale.width - 50));
+
+                    let typeRoll = Math.random();
+                    let isMoving = typeRoll > 0.8;
+                    let isBreakable = !isMoving && typeRoll > 0.6;
+                    let w = 90 + Math.random() * 60;
+
+                    this.createPlatform(nextX, nextY, w, isMoving, isBreakable);
+                    
+                    this.lastPlatX = nextX;
+                    this.generatedY = nextY;
+                }
+            }
+
+            update(time, delta) {
+                // Background Gradient Update
+                this.globalHue = (180 + (this.score * 2)) % 360;
+                let c1 = Phaser.Display.Color.HSLToColor(this.globalHue / 360, 0.6, 0.05).color;
+                this.bgGraphics.clear();
+                this.bgGraphics.fillGradientStyle(c1, c1, 0x000000, 0x000000, 1);
+                this.bgGraphics.fillRect(0, this.cameras.main.scrollY, this.scale.width, this.scale.height);
+
+                // Update Stars Parallax
+                this.stars.forEach(star => {
+                    let sy = (star.y - this.cameras.main.scrollY * star.speed) % this.scale.height;
+                    if (sy < 0) sy += this.scale.height;
+                    // Draw strictly to screen coordinates manually since scrollFactor is 0
+                    star.y = sy; 
+                });
+
+                // Update Lava
+                this.lavaSpeed += 0.00005 * delta;
+                let dt = (delta * 0.06) * this.matter.world.engine.timing.timeScale;
+                this.lavaY -= this.lavaSpeed * dt;
+                this.lavaRect.y = this.lavaY;
+                this.matter.body.setPosition(this.lavaBody, { x: this.scale.width/2, y: this.lavaY });
+
+                // Update Platforms
+                this.platforms.forEach(p => {
+                    if (p.body.customProps.moving && p.body.gameObject.active) {
+                        let moveX = p.body.customProps.speed * p.body.customProps.dir * dt;
+                        this.matter.body.translate(p.body, { x: moveX, y: 0 });
+                        
+                        if (p.body.position.x > p.body.customProps.limitRight) p.body.customProps.dir = -1;
+                        if (p.body.position.x < p.body.customProps.limitLeft) p.body.customProps.dir = 1;
+                    }
+                });
+
+                // Clean up old platforms
+                for (let i = this.platforms.length - 1; i >= 0; i--) {
+                    let p = this.platforms[i];
+                    if (p.body.position.y > this.lavaY + 200) {
+                        p.sprite.destroy(); // This also removes from world
+                        this.platforms.splice(i, 1);
+                    }
+                }
+
+                // Camera Follow
+                let targetY = this.player.y - this.scale.height * 0.7;
+                this.cameras.main.scrollY += (targetY - this.cameras.main.scrollY) * 0.1;
+
+                // Player Bounds
+                if (this.player.x < 15) { this.player.x = 15; this.player.setVelocityX(0); }
+                if (this.player.x > this.scale.width - 15) { this.player.x = this.scale.width - 15; this.player.setVelocityX(0); }
+
+                // Game Over Check
+                if (this.player.y > this.lavaY + 40) {
+                    this.gameOver();
+                }
+
+                // Score
+                let rawHeight = (this.scale.height - 200) - this.player.y;
+                let m = Math.max(0, Math.floor(rawHeight / 100));
+                if (m > this.score) this.score = m;
+                let scoreEl = document.getElementById('score');
+                scoreEl.innerText = this.score + "m";
+                scoreEl.style.color = `hsl(${this.globalHue}, 100%, 70%)`;
+
+                // Player Color
+                let mainColor = Phaser.Display.Color.HSLToColor(this.globalHue/360, 1, 0.6).color;
+                this.player.setTint(this.isGrounded ? 0xffffff : mainColor);
+
+                // Aim Line
+                this.aimGraphics.clear();
+                if (this.isDragging) {
+                    let start = this.player.getCenter();
+                    let end = new Phaser.Math.Vector2(
+                        start.x + (this.dragStart.x - this.dragCurrent.x),
+                        start.y + (this.dragStart.y - this.dragCurrent.y)
+                    );
+                    
+                    let dist = Phaser.Math.Distance.BetweenPoints(start, end);
+                    let max = 150;
+                    if(dist > max) {
+                        let vec = end.clone().subtract(start).normalize().scale(max);
+                        end = start.clone().add(vec);
+                    }
+
+                    this.aimGraphics.lineStyle(4, 0xffffff);
+                    this.aimGraphics.strokeLineShape(new Phaser.Geom.Line(start.x, start.y, end.x, end.y));
+                    
+                    let perc = Math.min(dist/max, 1.0);
+                    let txtColor = Phaser.Display.Color.Interpolate.ColorWithColor(
+                        new Phaser.Display.Color(255,255,255), 
+                        new Phaser.Display.Color(0,0,0), 100, perc*100
+                    );
+                    // (Simple percentage text could be added here if desired via a text object)
+                }
+
+                // Trail
+                if (!this.isGrounded) {
+                    this.trailPoints.push({ x: this.player.x, y: this.player.y });
+                    if (this.trailPoints.length > 20) this.trailPoints.shift();
+                } else if (this.trailPoints.length > 0) {
+                    this.trailPoints.shift();
+                }
+
+                this.trailGraphics.clear();
+                if (this.trailPoints.length > 1) {
+                    this.trailGraphics.lineStyle(10, mainColor, 0.5);
+                    this.trailGraphics.beginPath();
+                    this.trailGraphics.moveTo(this.trailPoints[0].x, this.trailPoints[0].y);
+                    for (let i = 1; i < this.trailPoints.length; i++) {
+                        this.trailGraphics.lineTo(this.trailPoints[i].x, this.trailPoints[i].y);
+                    }
+                    this.trailGraphics.strokePath();
+                }
+
+                this.generatePath();
+            }
+
+            gameOver() {
+                this.scene.pause();
+                document.getElementById('game-over').style.display = 'block';
+                document.getElementById('final-score').innerText = "Height: " + this.score + "m";
+                if(this.score > this.highScore) { localStorage.setItem('chrono_jump_best', this.score); }
+                playSound('break');
+            }
         }
 
-        function gameOver() {
-            isGameOver = true;
-            document.getElementById('game-over').style.display = 'block';
-            document.getElementById('final-score').innerText = "Height: " + score + "m";
-            if(score > highScore) { localStorage.setItem('chrono_jump_best', score); }
-            engine.timing.timeScale = 0; 
-            playSound('break');
-        }
+        // --- GAME CONFIG ---
+        const config = {
+            type: Phaser.AUTO,
+            width: window.innerWidth,
+            height: window.innerHeight,
+            backgroundColor: '#050505',
+            scale: {
+                mode: Phaser.Scale.RESIZE,
+                autoCenter: Phaser.Scale.CENTER_BOTH
+            },
+            physics: {
+                default: 'matter',
+                matter: {
+                    gravity: { y: 1 }, // Adjusted gravity for Phaser scale
+                    debug: false
+                }
+            },
+            scene: GameScene
+        };
 
-        window.addEventListener('resize', () => { render.canvas.width = window.innerWidth; render.canvas.height = window.innerHeight; });
-        init();
+        const game = new Phaser.Game(config);
+
+        // Resize Logic
+        window.addEventListener('resize', () => {
+            game.scale.resize(window.innerWidth, window.innerHeight);
+        });
+
+        // Restart Logic
+        document.getElementById('restart-btn').addEventListener('click', () => {
+            document.getElementById('game-over').style.display = 'none';
+            game.scene.getScene('GameScene').scene.restart();
+        });
+
     </script>
 </body>
 </html>
