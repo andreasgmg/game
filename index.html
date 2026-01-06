@@ -3,11 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>CHRONO JUMP: HYPER PERFORMANCE</title>
+    <title>CHRONO JUMP: 120FPS</title>
     <style>
         body {
             margin: 0; padding: 0; overflow: hidden;
-            background-color: #000;
+            background-color: #050505;
+            /* PERFORMANCE TRICK: Static CSS gradient is much faster than Canvas gradient */
+            background: linear-gradient(to bottom, #0a0a1a 0%, #000000 100%);
             font-family: 'Segoe UI', sans-serif;
             user-select: none;
             touch-action: none;
@@ -19,38 +21,41 @@
             color: #fff; z-index: 10; margin-top: 20px;
         }
         #score { 
-            font-size: 80px; font-weight: 900; margin: 0; 
-            letter-spacing: 2px; text-shadow: 0 5px 0 #000;
+            font-size: 60px; font-weight: 900; margin: 0; 
+            letter-spacing: 2px; text-shadow: 2px 2px 0 #000;
         }
-        #combo-container {
-            height: 30px; margin-top: -10px; margin-bottom: 10px;
-        }
+        #combo-container { height: 30px; }
         #combo {
             font-size: 24px; font-weight: 800; color: #FFD700;
             opacity: 0; transition: transform 0.1s;
-            text-shadow: 0 2px 0 #000;
+            text-shadow: 1px 1px 0 #000;
         }
-        #high-score { font-size: 18px; color: rgba(255,255,255,0.6); }
-        #hint { font-size: 14px; opacity: 0.8; margin-top: 5px; text-transform: uppercase; letter-spacing: 2px; }
+        #high-score { font-size: 16px; color: rgba(255,255,255,0.6); }
+        #hint { font-size: 12px; opacity: 0.6; margin-top: 5px; text-transform: uppercase; letter-spacing: 2px; }
 
         #game-over {
             display: none; position: absolute; top: 50%; left: 50%;
             transform: translate(-50%, -50%);
-            background: rgba(0, 0, 0, 0.9); 
-            backdrop-filter: blur(10px);
-            padding: 50px; border: 2px solid rgba(255,255,255,0.2);
-            border-radius: 20px;
-            text-align: center; pointer-events: auto;
-            z-index: 100;
-            min-width: 250px;
+            background: rgba(20, 20, 20, 0.9); 
+            padding: 40px; border: 2px solid #fff;
+            border-radius: 20px; text-align: center; pointer-events: auto;
+            z-index: 100; min-width: 200px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
         }
         button {
-            padding: 15px 50px; font-size: 24px; font-weight: bold;
+            padding: 15px 40px; font-size: 20px; font-weight: bold;
             background: #fff; color: #000; border: none; cursor: pointer;
-            margin-top: 30px; text-transform: uppercase;
-            border-radius: 50px; transition: transform 0.1s;
+            margin-top: 20px; text-transform: uppercase;
+            border-radius: 50px;
         }
-        button:active { transform: scale(0.95); }
+        button:active { transform: scale(0.95); background: #ccc; }
+        
+        /* The Canvas scales to fit the screen, but renders at lower internal res for speed */
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
 </head>
@@ -64,404 +69,404 @@
     </div>
 
     <div id="game-over">
-        <h1 style="color: #fff; margin: 0; font-size: 50px;">OBLITERATED</h1>
-        <p id="final-score" style="color: #ccc; font-size: 24px;">Height: 0m</p>
-        <button onclick="location.reload()">RESURRECT</button>
+        <h1 style="color: #fff; margin: 0;">WRECKED</h1>
+        <p id="final-score" style="color: #aaa;">Height: 0m</p>
+        <button onclick="location.reload()">AGAIN</button>
     </div>
 
     <script>
-        const Engine = Matter.Engine, Render = Matter.Render, Runner = Matter.Runner,
-              Bodies = Matter.Bodies, Composite = Matter.Composite, Events = Matter.Events,
-              Body = Matter.Body, Vector = Matter.Vector;
+        // --- PHYSICS ENGINE SETUP ---
+        // We do NOT use Matter.Render here. Pure math only.
+        const Engine = Matter.Engine, Bodies = Matter.Bodies, Composite = Matter.Composite, 
+              Events = Matter.Events, Body = Matter.Body, Vector = Matter.Vector;
 
-        const engine = Engine.create();
-        const world = engine.world;
-        
-        // Disable Matter.js internal pixel ratio correction for performance
-        // We will handle rendering manually in the afterRender loop
-        const render = Render.create({
-            element: document.body,
-            engine: engine,
-            options: {
-                width: window.innerWidth,
-                height: window.innerHeight,
-                background: 'transparent',
-                wireframes: false,
-                hasBounds: true,
-                pixelRatio: 1 // Forces 1:1 pixel mapping (Huge FPS boost on Retina)
-            }
+        const engine = Engine.create({
+            enableSleeping: false // Keep physics active for accuracy
         });
+        const world = engine.world;
 
-        Render.run(render);
-        const runner = Runner.create();
-        Runner.run(runner, engine);
+        // --- GRAPHICS SETUP ---
+        const canvas = document.createElement('canvas');
+        document.body.appendChild(canvas);
+        const ctx = canvas.getContext('2d', { alpha: true }); // Alpha true for trails
+
+        let width, height;
+        
+        function resize() {
+            // High-DPI screens kill performance if we render pixel-perfect.
+            // We clamp the internal render resolution to max 800px width.
+            // CSS scales it up to look full screen. It looks slightly retro but runs 120fps.
+            let scale = Math.min(window.devicePixelRatio, 2); 
+            
+            width = window.innerWidth;
+            height = window.innerHeight;
+            
+            canvas.width = width * scale;
+            canvas.height = height * scale;
+            
+            // Normalize coordinate system
+            ctx.scale(scale, scale);
+        }
+        window.addEventListener('resize', resize);
+        resize();
 
         // --- AUDIO ---
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         const audioCtx = new AudioContext();
 
-        function playSound(type, pitchMod = 1) {
+        function playSound(type) {
             if (audioCtx.state === 'suspended') audioCtx.resume();
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
-            let time = audioCtx.currentTime;
+            let t = audioCtx.currentTime;
 
             if (type === 'jump') {
-                osc.frequency.setValueAtTime(150 * pitchMod, time);
-                osc.frequency.exponentialRampToValueAtTime(600 * pitchMod, time + 0.1);
-                gain.gain.setValueAtTime(0.1, time);
-                gain.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
+                osc.frequency.setValueAtTime(150, t); osc.frequency.exponentialRampToValueAtTime(600, t+0.1);
+                gain.gain.setValueAtTime(0.1, t); gain.gain.linearRampToValueAtTime(0, t+0.1);
             } else if (type === 'land') {
-                osc.frequency.setValueAtTime(200, time);
-                osc.frequency.exponentialRampToValueAtTime(50, time + 0.1);
-                gain.gain.setValueAtTime(0.1, time);
-                gain.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
-            } else if (type === 'break') {
-                osc.type = 'square';
-                osc.frequency.setValueAtTime(100, time);
-                osc.frequency.exponentialRampToValueAtTime(20, time + 0.2);
-                gain.gain.setValueAtTime(0.1, time);
-                gain.gain.linearRampToValueAtTime(0, time + 0.2);
-            } else if (type === 'spawn') {
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(600, time);
-                osc.frequency.exponentialRampToValueAtTime(200, time + 0.3);
-                gain.gain.setValueAtTime(0.05, time);
-                gain.gain.exponentialRampToValueAtTime(0.01, time + 0.3);
+                osc.frequency.setValueAtTime(200, t); osc.frequency.exponentialRampToValueAtTime(50, t+0.1);
+                gain.gain.setValueAtTime(0.1, t); gain.gain.linearRampToValueAtTime(0, t+0.1);
             } else if (type === 'perfect') {
                 osc.type = 'triangle';
-                let p = 600 + (combo * 100);
-                osc.frequency.setValueAtTime(p, time);
-                osc.frequency.exponentialRampToValueAtTime(p + 300, time + 0.2);
-                gain.gain.setValueAtTime(0.1, time);
-                gain.gain.exponentialRampToValueAtTime(0.01, time + 0.2);
-            } else if (type === 'orb') {
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(400, time);
-                osc.frequency.exponentialRampToValueAtTime(1200, time + 0.3);
-                gain.gain.setValueAtTime(0.1, time);
-                gain.gain.exponentialRampToValueAtTime(0.01, time + 0.3);
+                let p = 600 + (combo*50);
+                osc.frequency.setValueAtTime(p, t); osc.frequency.linearRampToValueAtTime(p+300, t+0.2);
+                gain.gain.setValueAtTime(0.1, t); gain.gain.linearRampToValueAtTime(0, t+0.2);
+            } else if (type === 'break') {
+                osc.type = 'square'; osc.frequency.setValueAtTime(100, t);
+                gain.gain.setValueAtTime(0.1, t); gain.gain.linearRampToValueAtTime(0, t+0.15);
             }
 
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            osc.start();
-            osc.stop(time + 0.5);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.start(); osc.stop(t + 0.3);
         }
 
-        // --- VARIABLES ---
+        // --- GAME STATE ---
         let player, lava;
-        let platforms = [], particles = [], orbs = [], floatingTexts = [], stars = [], embers = [], trail = [];
-        let isDragging = false, dragStart = { x: 0, y: 0 }, dragCurrent = { x: 0, y: 0 }, isGrounded = false;
+        let platforms = [], particles = [], orbs = [], floatingTexts = [], stars = [], trail = [];
+        let isDragging = false, dragStart = {x:0, y:0}, dragCurrent = {x:0, y:0}, isGrounded = false;
         let score = 0, highScore = localStorage.getItem('chrono_jump_best') || 0;
         let lavaSpeed = 0.5, isGameOver = false;
-        let cameraY = 0, shakeIntensity = 0, globalHue = 180, combo = 0;
-        let lastPlatX = window.innerWidth / 2, lastPlatY = window.innerHeight - 50;
+        let cameraY = 0, shake = 0, combo = 0, globalHue = 180;
+        let lastPlatX = window.innerWidth/2, lastPlatY = window.innerHeight-50;
 
-        // --- SETUP ---
         function init() {
             document.getElementById('high-score').innerText = "BEST: " + highScore + "m";
 
-            for(let i=0; i<60; i++) stars.push({x:Math.random()*window.innerWidth, y:Math.random()*window.innerHeight, size:Math.random()*2, speed:Math.random()*0.5+0.1, alpha:Math.random()});
-            for(let i=0; i<20; i++) embers.push({x:Math.random()*window.innerWidth, y:window.innerHeight+Math.random()*500, size:Math.random()*4+1, speed:Math.random()*2+1});
+            // Static Background Stars
+            for(let i=0; i<60; i++) stars.push({
+                x: Math.random()*window.innerWidth, y: Math.random()*window.innerHeight, 
+                s: Math.random()*2, a: Math.random()
+            });
 
-            player = Bodies.rectangle(window.innerWidth/2, window.innerHeight - 200, 30, 30, {
-                friction: 0.1, frictionAir: 0.01, restitution: 0.0, density: 0.002,
-                render: { fillStyle: '#fff' }
+            // Physics Objects
+            player = Bodies.rectangle(window.innerWidth/2, window.innerHeight-200, 28, 28, {
+                friction: 0.1, frictionAir: 0.01, restitution: 0.0, density: 0.002
             });
             
-            let startPlat = Bodies.rectangle(window.innerWidth/2, window.innerHeight - 50, 400, 40, {
-                isStatic: true, render: { fillStyle: '#333' }, visited: true
-            });
-            platforms.push(startPlat);
+            let start = Bodies.rectangle(window.innerWidth/2, window.innerHeight-50, 400, 40, { isStatic: true, visited: true });
+            platforms.push(start);
 
-            lava = Bodies.rectangle(window.innerWidth/2, window.innerHeight + 600, window.innerWidth * 2, 1000, {
-                isStatic: true, isSensor: true, render: { fillStyle: '#FF3333', opacity: 0.8 }
-            });
+            lava = Bodies.rectangle(window.innerWidth/2, window.innerHeight+600, window.innerWidth*2, 1000, { isStatic: true, isSensor: true });
 
-            Composite.add(world, [player, startPlat, lava]);
+            Composite.add(world, [player, start, lava]);
             generatePath();
+            
+            // Start Loop
+            requestAnimationFrame(loop);
         }
 
         function generatePath() {
-            let limit = cameraY - 1000; 
-            while (lastPlatY > limit) {
-                let jumpY = 130 + Math.random() * 60; 
+            let limit = cameraY - 1000;
+            while(lastPlatY > limit) {
+                let jumpY = 130 + Math.random() * 60;
                 let nextY = lastPlatY - jumpY;
-                let minShift = 90, maxShift = 250; 
-                let dir = (lastPlatX < window.innerWidth * 0.3) ? 1 : (lastPlatX > window.innerWidth * 0.7) ? -1 : (Math.random() > 0.5 ? 1 : -1);
-                let shift = minShift + (Math.random() * (maxShift - minShift));
-                let nextX = lastPlatX + (shift * dir);
+                let dir = (lastPlatX < window.innerWidth*0.3) ? 1 : (lastPlatX > window.innerWidth*0.7) ? -1 : (Math.random()>0.5?1:-1);
+                let nextX = lastPlatX + (90 + Math.random()*160) * dir;
 
-                if (nextX < 50) nextX = 50 + Math.abs(50 - nextX); 
-                else if (nextX > window.innerWidth - 50) nextX = (window.innerWidth - 50) - Math.abs(nextX - (window.innerWidth - 50));
+                if (nextX < 50) nextX = 50 + Math.abs(50-nextX);
+                if (nextX > window.innerWidth-50) nextX = (window.innerWidth-50) - Math.abs(nextX-(window.innerWidth-50));
 
-                let typeRoll = Math.random();
-                let isMoving = typeRoll > 0.8;
-                let isBreakable = !isMoving && typeRoll > 0.6;
-                let color = isMoving ? '#444' : '#222';
-                if (isBreakable) color = '#fff';
+                let type = Math.random();
+                let isMoving = type > 0.8;
+                let isBreakable = !isMoving && type > 0.6;
+                let colorType = isBreakable ? 2 : (isMoving ? 1 : 0); // 0:Static, 1:Move, 2:Break
 
-                let w = 90 + Math.random() * 60; 
-                let plat = Bodies.rectangle(nextX, nextY, w, 20, {
-                    isStatic: true, render: { fillStyle: color }, moving: isMoving, breakable: isBreakable,
-                    speed: 1 + Math.random(), limitLeft: Math.max(20, nextX - 100), limitRight: Math.min(window.innerWidth - 20, nextX + 100),
-                    dir: Math.random() > 0.5 ? 1 : -1, broken: false, visited: false 
+                let plat = Bodies.rectangle(nextX, nextY, 90 + Math.random()*60, 20, {
+                    isStatic: true, moving: isMoving, breakable: isBreakable, colorType: colorType,
+                    speed: 1+Math.random(), limitLeft: Math.max(20, nextX-100), limitRight: Math.min(window.innerWidth-20, nextX+100), 
+                    dir: Math.random()>0.5?1:-1, broken: false, visited: false
                 });
 
                 platforms.push(plat);
                 Composite.add(world, plat);
 
                 if (!isBreakable && Math.random() < 0.15) {
-                    let orb = Bodies.circle(nextX, nextY - 40, 10, {
-                        isStatic: true, isSensor: true, label: 'orb', render: { fillStyle: '#FFD700' }
-                    });
-                    orbs.push(orb);
-                    Composite.add(world, orb);
+                    let orb = Bodies.circle(nextX, nextY-40, 10, { isStatic: true, isSensor: true, label: 'orb' });
+                    orbs.push(orb); Composite.add(world, orb);
                 }
                 lastPlatX = nextX; lastPlatY = nextY;
             }
         }
 
-        // --- COLLISIONS ---
-        Events.on(engine, 'collisionStart', (event) => {
-            event.pairs.forEach((pair) => {
-                let other = pair.bodyA === player ? pair.bodyB : pair.bodyA;
+        // --- MAIN LOOP ---
+        function loop() {
+            if(!isGameOver) {
+                // Fixed Time Step for Physics Consistency
+                Engine.update(engine, 1000 / 60);
                 
-                if (other.label === 'orb') { collectOrb(other); return; }
+                // Logic
+                globalHue = (180 + (score * 2)) % 360;
+                lavaSpeed += 0.0001;
+                Body.translate(lava, {x:0, y:-lavaSpeed});
+                Body.setPosition(lava, {x:window.innerWidth/2, y:lava.position.y});
 
+                // Camera Lerp
+                let targetY = player.position.y - window.innerHeight * 0.65;
+                cameraY += (targetY - cameraY) * 0.1;
+
+                // Wall Clamping
+                if(player.position.x < 15) { Body.setPosition(player, {x:15, y:player.position.y}); Body.setVelocity(player, {x:0, y:player.velocity.y}); }
+                if(player.position.x > window.innerWidth-15) { Body.setPosition(player, {x:window.innerWidth-15, y:player.position.y}); Body.setVelocity(player, {x:0, y:player.velocity.y}); }
+
+                // Platform Movement
+                platforms.forEach(p => {
+                    if(p.moving) {
+                        Body.translate(p, {x:p.speed*p.dir, y:0});
+                        if(p.position.x > p.limitRight) p.dir=-1; if(p.position.x < p.limitLeft) p.dir=1;
+                    }
+                });
+
+                // Cleanup
+                for(let i=platforms.length-1; i>=0; i--) if(platforms[i].position.y > lava.position.y+200) { Composite.remove(world, platforms[i]); platforms.splice(i,1); }
+                generatePath();
+
+                // Trail Logic
+                if(!isGrounded) {
+                    trail.push({x:player.position.x, y:player.position.y});
+                    if(trail.length > 15) trail.shift();
+                } else if(trail.length > 0) trail.shift();
+
+                // Death
+                if(player.position.y > lava.bounds.min.y + 40) die();
+
+                // Score
+                let rawH = (window.innerHeight - 200) - player.position.y;
+                let m = Math.max(0, Math.floor(rawH / 100));
+                if(m>score) {
+                    score = m;
+                    document.getElementById('score').innerText = score + "m";
+                    document.getElementById('score').style.color = `hsl(${globalHue}, 100%, 70%)`;
+                }
+            }
+            
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        // --- RENDERER ---
+        function draw() {
+            // Clear Screen
+            ctx.clearRect(0, 0, width, height);
+
+            ctx.save();
+            // Camera Transform
+            ctx.translate(0, -cameraY);
+            if(shake > 0) {
+                ctx.translate((Math.random()-0.5)*shake, (Math.random()-0.5)*shake);
+                shake *= 0.9;
+            }
+
+            // Stars (Simple)
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            for(let s of stars) {
+                let sy = (s.y - cameraY * 0.2) % window.innerHeight; // Parallax
+                if(sy < 0) sy += window.innerHeight;
+                ctx.beginPath(); ctx.arc(s.x, sy, s.s, 0, Math.PI*2); ctx.fill();
+            }
+
+            // Platforms
+            for(let p of platforms) {
+                if(p.colorType === 2) ctx.fillStyle = '#fff';
+                else if(p.colorType === 1) ctx.fillStyle = '#d0f';
+                else ctx.fillStyle = '#666';
+                
+                // Draw Rect using Matter bounds (Faster than path)
+                ctx.fillRect(p.bounds.min.x, p.bounds.min.y, p.bounds.max.x - p.bounds.min.x, p.bounds.max.y - p.bounds.min.y);
+            }
+
+            // Lava
+            ctx.fillStyle = '#f00';
+            ctx.fillRect(0, lava.position.y - 500, window.innerWidth, 1000);
+            ctx.fillStyle = '#ffaa00'; // Lava Top Line
+            ctx.fillRect(0, lava.position.y - 500, window.innerWidth, 20);
+
+            // Orbs
+            for(let o of orbs) {
+                ctx.fillStyle = '#FFD700';
+                let s = 10 + Math.sin(Date.now() * 0.005) * 2;
+                ctx.beginPath(); ctx.arc(o.position.x, o.position.y, s, 0, Math.PI*2); ctx.fill();
+            }
+
+            // Trail
+            if(trail.length > 1) {
+                ctx.strokeStyle = `hsla(${globalHue}, 100%, 50%, 0.5)`;
+                ctx.lineWidth = 8;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.moveTo(trail[0].x, trail[0].y);
+                for(let i=1; i<trail.length; i++) ctx.lineTo(trail[i].x, trail[i].y);
+                ctx.stroke();
+            }
+
+            // Player
+            ctx.fillStyle = isGrounded ? '#fff' : `hsl(${globalHue}, 100%, 60%)`;
+            ctx.fillRect(player.position.x - 14, player.position.y - 14, 28, 28);
+
+            // Particles
+            for(let i=particles.length-1; i>=0; i--) {
+                let p = particles[i];
+                p.x += p.vx; p.y += p.vy; p.life -= 0.05;
+                if(p.life <= 0) particles.splice(i, 1);
+                else {
+                    ctx.fillStyle = p.c;
+                    ctx.globalAlpha = p.life;
+                    ctx.beginPath(); ctx.arc(p.x, p.y, p.s, 0, Math.PI*2); ctx.fill();
+                }
+            }
+            ctx.globalAlpha = 1.0;
+
+            // Floating Text
+            ctx.font = "bold 20px Segoe UI";
+            ctx.textAlign = "center";
+            for(let i=floatingTexts.length-1; i>=0; i--) {
+                let t = floatingTexts[i];
+                t.y -= 1; t.life -= 0.02;
+                if(t.life <= 0) floatingTexts.splice(i, 1);
+                else {
+                    ctx.fillStyle = t.c;
+                    ctx.globalAlpha = t.life;
+                    ctx.fillText(t.text, t.x, t.y);
+                }
+            }
+            ctx.globalAlpha = 1.0;
+
+            // Aim Line
+            if(isDragging && !isGameOver) {
+                let dx = dragStart.x - dragCurrent.x;
+                let dy = dragStart.y - dragCurrent.y;
+                let dist = Math.sqrt(dx*dx + dy*dy); let max = 150;
+                if(dist > max) { let r = max/dist; dx *= r; dy *= r; }
+                
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 3;
+                ctx.setLineDash([8, 8]);
+                ctx.beginPath();
+                ctx.moveTo(player.position.x, player.position.y);
+                ctx.lineTo(player.position.x + dx, player.position.y + dy);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            ctx.restore();
+        }
+
+        // --- EVENTS ---
+        function die() {
+            if(isGameOver) return;
+            createExplosion(player.position.x, player.position.y, '#f00', 30);
+            playSound('break');
+            isGameOver = true;
+            document.getElementById('game-over').style.display = 'block';
+            document.getElementById('final-score').innerText = "Height: " + score + "m";
+            if(score > highScore) localStorage.setItem('chrono_jump_best', score);
+        }
+
+        function createExplosion(x, y, color, count) {
+            shake = 5;
+            for(let i=0; i<count; i++) particles.push({
+                x: x, y: y, vx: (Math.random()-0.5)*10, vy: (Math.random()-0.5)*10,
+                life: 1.0, c: color, s: Math.random()*4
+            });
+        }
+
+        function createFloatingText(text, x, y, color='#fff') {
+            floatingTexts.push({ text: text, x: x, y: y, life: 1.0, c: color });
+        }
+
+        Events.on(engine, 'collisionStart', (evt) => {
+            evt.pairs.forEach((pair) => {
+                let other = pair.bodyA === player ? pair.bodyB : pair.bodyA;
+                if (other.label === 'orb') {
+                    if(!orbs.includes(other)) return;
+                    Composite.remove(world, other); orbs = orbs.filter(o => o !== other);
+                    playSound('perfect'); createExplosion(other.position.x, other.position.y, '#FFD700', 10);
+                    Body.translate(lava, {x:0, y:150}); createFloatingText("-LAVA", other.position.x, other.position.y - 20, '#FFD700');
+                    return;
+                }
                 if (other.isStatic && !other.isSensor) {
-                    if (player.position.y < other.position.y) {
+                    if (player.position.y < other.position.y - 10) {
                         if (!isGrounded) {
                             playSound('land');
-                            createExplosion(player.position.x, player.position.y + 15, `hsl(${globalHue}, 100%, 50%)`, 5);
+                            createExplosion(player.position.x, player.position.y+15, '#fff', 5);
                             let diff = Math.abs(player.position.x - other.position.x);
-                            if (diff < 15 && !other.visited) { 
-                                combo++; playSound('perfect'); score += 5 * combo;
-                                createFloatingText("PERFECT x" + combo, player.position.x, player.position.y - 40, '#FFD700');
-                                let originalColor = other.render.fillStyle; other.render.fillStyle = '#FFD700'; 
-                                setTimeout(() => { if(!other.broken) other.render.fillStyle = originalColor; }, 200);
-                                other.visited = true; 
+                            if (diff < 20 && !other.visited) {
+                                combo++; score += 5 * combo; playSound('perfect');
+                                createFloatingText("PERFECT x"+combo, player.position.x, player.position.y-40, '#FFD700');
+                                other.visited = true;
                             } else if (!other.visited) { combo = 0; other.visited = true; }
-                            updateComboUI();
+                            
+                            let el = document.getElementById('combo');
+                            if(combo>1) { el.innerText="COMBO x"+combo; el.style.opacity=1; } else el.style.opacity=0;
                         }
                         isGrounded = true;
                         if (other.breakable && !other.broken) {
-                            other.broken = true; other.render.fillStyle = '#FF9999';
-                            setTimeout(() => breakPlatform(other), 800);
+                            other.broken = true;
+                            setTimeout(() => {
+                                if(platforms.includes(other)) {
+                                    createExplosion(other.position.x, other.position.y, '#fff', 10);
+                                    playSound('break');
+                                    Composite.remove(world, other);
+                                    setTimeout(() => {
+                                        if(platforms.includes(other)) {
+                                            other.broken = false;
+                                            Composite.add(world, other);
+                                            createExplosion(other.position.x, other.position.y, '#0f0', 5);
+                                            playSound('spawn');
+                                        }
+                                    }, 2000);
+                                }
+                            }, 800);
                         }
                     }
                 }
             });
         });
 
-        function updateComboUI() {
-            let el = document.getElementById('combo');
-            if (combo > 1) { el.innerText = "COMBO x" + combo; el.style.opacity = 1; el.style.transform = "scale(1.5)"; setTimeout(() => el.style.transform = "scale(1)", 100); } 
-            else el.style.opacity = 0;
-        }
-
-        function collectOrb(orb) {
-            if (!orbs.includes(orb)) return;
-            Composite.remove(world, orb); orbs = orbs.filter(o => o !== orb);
-            playSound('orb'); createExplosion(orb.position.x, orb.position.y, '#FFD700', 10);
-            Body.translate(lava, { x: 0, y: 150 }); createFloatingText("-LAVA", orb.position.x, orb.position.y - 20, '#FFD700');
-        }
-
-        function breakPlatform(plat) {
-            if (!platforms.includes(plat)) return; 
-            createExplosion(plat.position.x, plat.position.y, '#FFF', 15); playSound('break');
-            Composite.remove(world, plat); setTimeout(() => respawnPlatform(plat), 2500); 
-        }
-
-        function respawnPlatform(plat) {
-            if (!platforms.includes(plat)) return; 
-            plat.broken = false; plat.render.fillStyle = '#fff';
-            Composite.add(world, plat); playSound('spawn');
-            createExplosion(plat.position.x, plat.position.y, '#00FF00', 8);
-        }
-
-        function createFloatingText(text, x, y, color = '#fff') { floatingTexts.push({ text: text, x: x, y: y, life: 1.0, color: color }); }
-
-        // --- INPUT ---
+        // Touch/Mouse Handlers
         function handleStart(x, y) {
             if (isGameOver) return;
-            if (isGrounded) { isDragging = true; dragStart = { x: x, y: y }; dragCurrent = { x: x, y: y }; engine.timing.timeScale = 0.1; }
+            if (isGrounded) { isDragging = true; dragStart = {x, y}; dragCurrent = {x, y}; engine.timing.timeScale = 0.1; }
         }
-        function handleMove(x, y) { if (isDragging) dragCurrent = { x: x, y: y }; }
+        function handleMove(x, y) { if(isDragging) dragCurrent = {x, y}; }
         function handleEnd() {
-            if (!isDragging) return;
-            isDragging = false; engine.timing.timeScale = 1.0; 
+            if(!isDragging) return;
+            isDragging = false; engine.timing.timeScale = 1.0;
             let dx = dragStart.x - dragCurrent.x, dy = dragStart.y - dragCurrent.y;
-            let force = Vector.mult(Vector.normalise({ x: dx, y: dy }), Math.min(Vector.magnitude({ x: dx*0.0006, y: dy*0.0006 }), 0.09));
-            if (Vector.magnitude(force) > 0.005) {
+            let force = Vector.mult(Vector.normalise({x:dx, y:dy}), Math.min(Vector.magnitude({x:dx*0.0006, y:dy*0.0006}), 0.09));
+            if(Vector.magnitude(force)>0.005) {
                 Body.applyForce(player, player.position, force);
-                createExplosion(player.position.x, player.position.y, `hsl(${globalHue}, 100%, 80%)`, 10);
-                playSound('jump', 1 + (combo*0.1)); isGrounded = false;
+                createExplosion(player.position.x, player.position.y, `hsl(${globalHue}, 100%, 80%)`, 8);
+                playSound('jump', 1+(combo*0.1)); isGrounded = false;
             }
         }
 
         document.addEventListener('mousedown', e => handleStart(e.clientX, e.clientY));
         document.addEventListener('mousemove', e => handleMove(e.clientX, e.clientY));
         document.addEventListener('mouseup', handleEnd);
-        document.addEventListener('touchstart', e => { handleStart(e.touches[0].clientX, e.touches[0].clientY); }, {passive: false});
-        document.addEventListener('touchmove', e => { e.preventDefault(); handleMove(e.touches[0].clientX, e.touches[0].clientY); }, {passive: false});
+        document.addEventListener('touchstart', e => handleStart(e.touches[0].clientX, e.touches[0].clientY), {passive:false});
+        document.addEventListener('touchmove', e => { e.preventDefault(); handleMove(e.touches[0].clientX, e.touches[0].clientY); }, {passive:false});
         document.addEventListener('touchend', handleEnd);
 
-        // --- LOOP ---
-        Events.on(engine, 'beforeUpdate', () => {
-            if (isGameOver) return;
-            globalHue = (180 + (score * 2)) % 360;
-
-            if (!isGrounded) { trail.push({ x: player.position.x, y: player.position.y }); if (trail.length > 20) trail.shift(); } 
-            else if (trail.length > 0) trail.shift();
-
-            if (player.position.x < 15) { Body.setPosition(player, { x: 15, y: player.position.y }); Body.setVelocity(player, { x: 0, y: player.velocity.y }); }
-            if (player.position.x > window.innerWidth - 15) { Body.setPosition(player, { x: window.innerWidth - 15, y: player.position.y }); Body.setVelocity(player, { x: 0, y: player.velocity.y }); }
-
-            lavaSpeed += 0.00005; Body.translate(lava, { x: 0, y: -lavaSpeed * engine.timing.timeScale });
-            Body.setPosition(lava, { x: window.innerWidth/2, y: lava.position.y }); 
-
-            let targetY = player.position.y - window.innerHeight * 0.7;
-            cameraY += (targetY - cameraY) * 0.08;
-            
-            if (shakeIntensity > 0) {
-                let sx = (Math.random()-0.5)*shakeIntensity, sy = (Math.random()-0.5)*shakeIntensity;
-                render.bounds.min.x = sx; render.bounds.max.x = window.innerWidth + sx;
-                render.bounds.min.y = cameraY + sy; render.bounds.max.y = cameraY + window.innerHeight + sy;
-                shakeIntensity *= 0.9;
-            } else {
-                render.bounds.min.x = 0; render.bounds.max.x = window.innerWidth;
-                render.bounds.min.y = cameraY; render.bounds.max.y = cameraY + window.innerHeight;
-            }
-
-            if (player.position.y > lava.bounds.min.y + 40) gameOver();
-
-            let rawHeight = (window.innerHeight - 200) - player.position.y;
-            let m = Math.max(0, Math.floor(rawHeight / 100));
-            if (m > score) score = m;
-            document.getElementById('score').innerText = score + "m";
-            document.getElementById('score').style.color = `hsl(${globalHue}, 100%, 70%)`;
-
-            platforms.forEach(p => { if (p.moving) { Body.translate(p, { x: p.speed * p.dir * engine.timing.timeScale, y: 0 }); if (p.position.x > p.limitRight) p.dir = -1; if (p.position.x < p.limitLeft) p.dir = 1; } });
-
-            for (let i = platforms.length - 1; i >= 0; i--) if (platforms[i].position.y > lava.position.y + 200) { Composite.remove(world, platforms[i]); platforms.splice(i, 1); }
-            for (let i = orbs.length - 1; i >= 0; i--) if (orbs[i].position.y > lava.position.y + 200) { Composite.remove(world, orbs[i]); orbs.splice(i, 1); }
-            generatePath();
-        });
-
-        // --- OPTIMIZED RENDER LOOP ---
-        Events.on(render, 'afterRender', () => {
-            const ctx = render.context;
-            let camY = render.bounds.min.y;
-
-            // 1. BG
-            let grad = ctx.createLinearGradient(0, 0, 0, window.innerHeight);
-            grad.addColorStop(0, `hsl(${globalHue}, 60%, 5%)`); grad.addColorStop(1, '#000');
-            ctx.globalCompositeOperation = 'destination-over';
-            ctx.fillStyle = grad; ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
-            ctx.globalCompositeOperation = 'source-over'; // Reset
-
-            // 2. Stars
-            ctx.fillStyle = '#fff';
-            stars.forEach(s => {
-                let sy = (s.y - camY * s.speed) % window.innerHeight; if (sy < 0) sy += window.innerHeight;
-                ctx.globalAlpha = s.alpha; ctx.beginPath(); ctx.arc(s.x, sy, s.size, 0, Math.PI*2); ctx.fill();
-            });
-            ctx.globalAlpha = 1.0;
-
-            // 3. Embers
-            ctx.fillStyle = '#FF5500';
-            embers.forEach(e => {
-                e.y -= e.speed; if (e.y < lava.position.y - 1500) { e.y = lava.position.y; e.x = Math.random() * window.innerWidth; }
-                ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.arc(e.x, e.y - camY, e.size, 0, Math.PI*2); ctx.fill();
-            });
-            ctx.globalAlpha = 1.0;
-
-            // 4. FAST GLOW (Using Additive Blending instead of ShadowBlur)
-            ctx.globalCompositeOperation = 'lighter'; // This makes things glow without CPU cost
-
-            // Trail
-            if (trail.length > 1) {
-                ctx.beginPath(); ctx.moveTo(trail[0].x, trail[0].y - camY);
-                for(let i=1; i<trail.length; i++) ctx.lineTo(trail[i].x, trail[i].y - camY);
-                ctx.strokeStyle = `hsla(${globalHue}, 100%, 50%, 0.5)`; ctx.lineWidth = 10; ctx.lineCap = 'round'; ctx.stroke();
-            }
-
-            // Orbs
-            orbs.forEach(o => {
-                let s = 10 + Math.sin(Date.now() * 0.005) * 2;
-                ctx.fillStyle = '#FFD700'; ctx.beginPath(); ctx.arc(o.position.x, o.position.y - camY, s, 0, Math.PI*2); ctx.fill();
-                // Fake outer glow
-                ctx.fillStyle = 'rgba(255, 215, 0, 0.3)'; ctx.beginPath(); ctx.arc(o.position.x, o.position.y - camY, s*2, 0, Math.PI*2); ctx.fill();
-            });
-
-            // Particles (Batch)
-            for(let i=particles.length-1; i>=0; i--) {
-                let p = particles[i]; p.x += p.vx; p.y += p.vy; p.life -= 0.03;
-                if(p.life <= 0) particles.splice(i, 1);
-                else {
-                    ctx.fillStyle = p.color; ctx.globalAlpha = p.life;
-                    ctx.beginPath(); ctx.arc(p.x, p.y - camY, p.size, 0, Math.PI*2); ctx.fill();
-                }
-            }
-            ctx.globalAlpha = 1.0;
-
-            // Player & Lava (Fake Glows)
-            let mainColor = `hsl(${globalHue}, 100%, 60%)`;
-            
-            // Player Core
-            ctx.fillStyle = isGrounded ? '#fff' : mainColor;
-            ctx.fillRect(player.position.x - 15, player.position.y - camY - 15, 30, 30);
-            
-            // Player Glow (Larger transparent rect)
-            ctx.fillStyle = isGrounded ? 'rgba(255,255,255,0.3)' : `hsla(${globalHue}, 100%, 60%, 0.3)`;
-            ctx.fillRect(player.position.x - 25, player.position.y - camY - 25, 50, 50);
-
-            // Lava
-            ctx.fillStyle = '#F00';
-            ctx.fillRect(lava.position.x - window.innerWidth, lava.position.y - camY - 500, window.innerWidth * 2, 1000);
-            
-            ctx.globalCompositeOperation = 'source-over'; // Reset to normal drawing
-
-            // Floating Text
-            ctx.textAlign = "center"; ctx.font = "bold 20px Segoe UI";
-            for(let i=floatingTexts.length-1; i>=0; i--) {
-                let ft = floatingTexts[i]; ft.y -= 1; ft.life -= 0.02;
-                if(ft.life <= 0) floatingTexts.splice(i, 1);
-                else { ctx.fillStyle = ft.color; ctx.globalAlpha = ft.life; ctx.fillText(ft.text, ft.x, ft.y - camY); }
-            }
-            ctx.globalAlpha = 1.0;
-
-            // Aim Line
-            if (isDragging && !isGameOver) {
-                let sx = player.position.x; let sy = player.position.y - camY;
-                let dx = dragStart.x - dragCurrent.x; let dy = dragStart.y - dragCurrent.y;
-                let dist = Math.sqrt(dx*dx + dy*dy); let max = 150;
-                if(dist > max) { let r = max/dist; dx *= r; dy *= r; }
-                
-                ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx+dx, sy+dy);
-                ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.setLineDash([10, 10]); ctx.stroke(); ctx.setLineDash([]);
-                let perc = Math.min(dist/max, 1.0);
-                ctx.fillStyle = `rgba(255, ${255*(1-perc)}, ${255*(1-perc)}, 1)`;
-                ctx.fillText(Math.floor(perc*100)+"%", sx+20, sy-20);
-            }
-        });
-
-        function createExplosion(x, y, color, count) {
-            shakeIntensity = 5;
-            for(let i=0; i<count; i++) particles.push({ x: x, y: y, vx: (Math.random()-0.5)*10, vy: (Math.random()-0.5)*10, life: 1.0, color: color, size: Math.random()*4 });
-        }
-
-        function gameOver() {
-            isGameOver = true;
-            document.getElementById('game-over').style.display = 'block';
-            document.getElementById('final-score').innerText = "Height: " + score + "m";
-            if(score > highScore) { localStorage.setItem('chrono_jump_best', score); }
-            engine.timing.timeScale = 0; playSound('break');
-        }
-
-        window.addEventListener('resize', () => { render.canvas.width = window.innerWidth; render.canvas.height = window.innerHeight; });
         init();
     </script>
 </body>
